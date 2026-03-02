@@ -1,0 +1,67 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+module(
+    name = "agent-tools",
+    version = "0.0.1",
+)
+
+# --- C++ Toolchain -------------------------------------------------------
+
+bazel_dep(name = "toolchains_chromium", version = "0.0.1", dev_dependency = True)
+git_override(
+    module_name = "toolchains_chromium",
+    remote = "https://github.com/google/toolchains_chromium",
+    commit = "1cc2c49e1e120e42349ad643dc3e09cda2f2fbcb",
+)
+
+chromium = use_extension("@toolchains_chromium//:extensions.bzl", "chromium", dev_dependency = True)
+chromium.toolchain(name = "chromium_toolchain")
+use_repo(chromium, "chromium_toolchain")
+register_toolchains("@chromium_toolchain//:all", dev_dependency = True)
+
+# --- Rust Toolchain ------------------------------------------------------
+
+bazel_dep(name = "rules_rust", version = "0.69.0")
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(edition = "2024")
+use_repo(rust, "rust_toolchains")
+register_toolchains("@rust_toolchains//:all")
+
+
+# --- Rust Crate Dependencies ---------------------------------------------
+
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.spec(package = "clap", version = "4", features = ["derive"])
+crate.spec(package = "prost", version = "0.13")
+crate.spec(package = "protoc-gen-prost", version = "0.4")
+crate.annotation(crate = "protoc-gen-prost", gen_binaries = ["protoc-gen-prost"])
+crate.spec(package = "googletest", version = "0.14")
+crate.from_specs(name = "crates")
+use_repo(crate, "crates")
+
+# --- Build Dependencies --------------------------------------------------
+
+bazel_dep(name = "nsjail", version = "0.0.1")
+git_override(
+    module_name = "nsjail",
+    remote = "https://github.com/afq984/nsjail",
+    commit = "7d52a57e680950a3a42bceb547f28f17f67081bd",
+    init_submodules = True,
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.14")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "protobuf", version = "33.4")
