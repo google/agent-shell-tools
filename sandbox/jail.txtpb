@@ -1,0 +1,84 @@
+## nsjail configuration for coding agents
+
+name: "coding-agent"
+description: "Sandbox for running coding agents"
+
+mode: ONCE
+hostname: "coding-agent"
+## cwd and project directory are set by the Rust launcher.
+
+time_limit: 0
+max_cpus: 0
+
+log_level: INFO
+
+## Capabilities & Privileges
+keep_caps: false
+silent: false
+## Needed for interactive terminal (job control, signals).
+## Risk: TIOCSTI keystroke injection — mitigated if CONFIG_LEGACY_TIOCSTI=n (Linux ≥6.2).
+## Launcher should verify: sysctl dev.tty.legacy_tiocsti == 0
+skip_setsid: true
+disable_no_new_privs: false
+forward_signals: true
+
+## Namespaces
+clone_newuser: true
+clone_newns: true
+clone_newpid: true
+clone_newipc: true
+clone_newuts: true
+clone_newcgroup: true
+## Network namespace OFF -- agents need outbound HTTPS to their API endpoints
+clone_newnet: false
+
+## UID / GID mapping
+## Map the calling user to the same uid/gid inside the jail
+uidmap { inside_id: "" outside_id: "" count: 1 }
+gidmap { inside_id: "" outside_id: "" count: 1 }
+
+## Resource Limits — inherit soft limits from parent process.
+rlimit_as_type: SOFT
+rlimit_cpu_type: SOFT
+rlimit_fsize_type: SOFT
+rlimit_nofile_type: SOFT
+rlimit_nproc_type: SOFT
+rlimit_stack_type: SOFT
+
+## Environment
+envar: "HOME"
+envar: "PATH"
+envar: "TERM"
+envar: "LANG"
+envar: "USER"
+envar: "SHELL"
+
+## Filesystem Mounts
+##
+## Principle: mount only what's needed, not all of /.
+## Excludes: /boot, /root, /srv, /sys, /mnt, /var (info leaks, no use)
+
+## Binaries & libraries (Arch merged-usr: /bin, /sbin, /lib, /lib64 are symlinks to /usr)
+mount { src: "/usr" dst: "/usr" is_bind: true rw: false mandatory: true }
+mount { src: "usr/bin" dst: "/bin" is_symlink: true mandatory: true }
+mount { src: "usr/bin" dst: "/sbin" is_symlink: true mandatory: true }
+mount { src: "usr/lib" dst: "/lib" is_symlink: true mandatory: true }
+mount { src: "usr/lib" dst: "/lib64" is_symlink: true mandatory: true }
+
+## System configuration (resolv.conf, passwd, ld.so.cache, ssl certs)
+mount { src: "/etc" dst: "/etc" is_bind: true rw: false mandatory: true }
+
+## Device nodes
+mount { src: "/dev"      dst: "/dev"      is_bind: true  rw: false  mandatory: true }
+mount { src: "/dev/null" dst: "/dev/null" is_bind: true  rw: true   mandatory: true }
+mount { src: "/dev/urandom" dst: "/dev/urandom" is_bind: true rw: false mandatory: true }
+
+## DNS resolution (systemd-resolved stub at 127.0.0.53 needs its socket)
+mount { src: "/run/systemd/resolve" dst: "/run/systemd/resolve" is_bind: true rw: false mandatory: true }
+
+## Virtual filesystems
+mount { dst: "/proc" fstype: "proc"  rw: false mandatory: true }
+mount { dst: "/tmp"    fstype: "tmpfs" rw: true options: "size=1073741824" mandatory: true }
+mount { dst: "/dev/shm" fstype: "tmpfs" rw: true options: "size=67108864"  mandatory: false }
+
+## Project directory mount and agent home are set by the Rust launcher.

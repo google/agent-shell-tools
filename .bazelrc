@@ -1,0 +1,6 @@
+# C / C++ flags matching nsjail
+build --cxxopt=-std=c++20
+build --cxxopt=-fno-exceptions
+build --copt=-D_GNU_SOURCE
+build --copt=-D_FILE_OFFSET_BITS=64
+build --linkopt=-Wl,-z,noexecstack
