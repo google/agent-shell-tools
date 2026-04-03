@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::ffi::c_int;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -60,6 +61,54 @@ fn exposes_home(path: &Path, home: &Path) -> bool {
     home.starts_with(&path)
 }
 
+/// Directories that may be symlinks (merged-usr) or real directories.
+/// The symlink targets vary by distro (e.g. Arch: /sbin -> usr/bin,
+/// Debian: /sbin -> usr/sbin), so we read the host layout at runtime.
+const USR_LAYOUT_DIRS: &[&str] = &["/bin", "/sbin", "/lib", "/lib32", "/lib64"];
+
+/// Returns /bin, /sbin, /lib, /lib64 and optional DNS-resolver mounts
+/// based on the host filesystem layout.
+fn get_host_layout_mounts() -> Vec<nsjail::MountPt> {
+    let mut mounts = Vec::new();
+    for &dir in USR_LAYOUT_DIRS {
+        let path = Path::new(dir);
+        if let Ok(target) = fs::read_link(path) {
+            // Symlink (merged-usr): mirror the exact target inside the jail.
+            mounts.push(nsjail::MountPt {
+                src: Some(target.to_string_lossy().into_owned()),
+                dst: dir.into(),
+                is_symlink: Some(true),
+                mandatory: Some(true),
+                ..Default::default()
+            });
+        } else if path.is_dir() {
+            // Real directory (non-merged-usr): bind-mount it.
+            mounts.push(nsjail::MountPt {
+                src: Some(dir.into()),
+                dst: dir.into(),
+                is_bind: Some(true),
+                rw: Some(false),
+                mandatory: Some(true),
+                ..Default::default()
+            });
+        }
+        // Missing entirely — skip (e.g. /lib64 on some 32-bit systems).
+    }
+
+    // DNS resolution: systemd-resolved stub listener needs its socket.
+    if Path::new("/run/systemd/resolve").is_dir() {
+        mounts.push(nsjail::MountPt {
+            src: Some("/run/systemd/resolve".into()),
+            dst: "/run/systemd/resolve".into(),
+            is_bind: Some(true),
+            rw: Some(false),
+            mandatory: Some(true),
+            ..Default::default()
+        });
+    }
+    mounts
+}
+
 fn bind_mount(path: &PathBuf, rw: bool) -> nsjail::MountPt {
     let s = path.to_str().expect("non-UTF-8 path");
     nsjail::MountPt {
@@ -76,6 +125,8 @@ impl Cli {
     fn run(&self) -> ExitCode {
         let mut config = nsjail::NsJailConfig::decode(BASE_CONFIG)
             .expect("failed to decode embedded jail config");
+
+        config.mount.extend(get_host_layout_mounts());
 
         let home = std::env::var("HOME").expect("HOME not set");
         let home_path = Path::new(&home);
