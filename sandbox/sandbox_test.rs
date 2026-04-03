@@ -30,6 +30,7 @@ fn sandbox_bin() -> PathBuf {
     }
 }
 
+#[derive(Debug)]
 struct SandboxOutput {
     pub status: ExitStatus,
     pub stdout: String,
@@ -47,11 +48,15 @@ fn sandbox_with_flags(flags: &[&str], cmd: &[&str]) -> SandboxOutput {
         .args(cmd)
         .output()
         .expect("failed to spawn agent-sandbox");
-    SandboxOutput {
+    let output = SandboxOutput {
         status,
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
+    };
+    if output.status.code() == Some(255) {
+        panic!("Sandbox infrastructure failure (exit 255):\n{:#?}", output);
     }
+    output
 }
 
 // ---------------------------------------------------------------------------
