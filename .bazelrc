@@ -4,3 +4,5 @@ build --cxxopt=-fno-exceptions
 build --copt=-D_GNU_SOURCE
 build --copt=-D_FILE_OFFSET_BITS=64
 build --linkopt=-Wl,-z,noexecstack
+
+test --test_output=errors
