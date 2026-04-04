@@ -16,6 +16,7 @@ package server_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -273,5 +274,73 @@ func TestCancellation(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("stream did not terminate within 5s after cancellation")
+	}
+}
+
+// TestInterCommandSignal starts two concurrent RPCs on the same server:
+// command A waits for SIGUSR1, command B delivers it. This verifies that
+// commands share a PID namespace — the property that makes the exec service
+// useful inside a single sandbox.
+func TestInterCommandSignal(t *testing.T) {
+	c := setup(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Command A: set the trap before printing the PID so the handler is
+	// active by the time we read the PID and send the signal.
+	streamA, err := c.RunCommand(ctx, &pb.StartCommandRequest{
+		CommandLine: "trap 'echo got_signal; exit 0' USR1; echo $$; while true; do sleep 0.1; done",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Read until we have the PID line.
+	var buf string
+	var pid string
+	for pid == "" {
+		ev, err := streamA.Recv()
+		if err != nil {
+			t.Fatalf("reading PID from command A: %v", err)
+		}
+		if ev.GetExited() != nil {
+			t.Fatalf("command A exited before printing PID: %+v", ev.GetExited())
+		}
+		buf += string(ev.GetOutput())
+		if i := strings.Index(buf, "\n"); i >= 0 {
+			pid = strings.TrimSpace(buf[:i])
+			buf = buf[i+1:]
+		}
+	}
+
+	// Command B: deliver SIGUSR1 to command A.
+	r := runCtx(t, ctx, c, fmt.Sprintf("kill -USR1 %s", pid), "")
+	if r.exitCode != 0 {
+		t.Fatalf("kill exit code = %d, err = %q", r.exitCode, r.errMsg)
+	}
+
+	// Collect the rest of command A's output.
+	var exitCode int32
+	for {
+		ev, err := streamA.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Recv: %v", err)
+		}
+		if out := ev.GetOutput(); len(out) > 0 {
+			buf += string(out)
+		}
+		if info := ev.GetExited(); info != nil {
+			exitCode = info.GetExitCode()
+		}
+	}
+
+	if exitCode != 0 {
+		t.Errorf("command A exit code = %d, want 0", exitCode)
+	}
+	if !strings.Contains(buf, "got_signal") {
+		t.Errorf("command A output = %q, want to contain %q", buf, "got_signal")
 	}
 }
