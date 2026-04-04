@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 # ---------------------------------------------------------------------------
@@ -65,21 +64,19 @@ genrule(
 )
 
 # ---------------------------------------------------------------------------
-# C++ nsjail execution backend — called from the Rust frontend via FFI.
+# File descriptor set for prost-reflect text proto serialization.
 # ---------------------------------------------------------------------------
 
-cc_library(
-    name = "run_jail",
-    srcs = ["run_jail.cc"],
-    hdrs = ["run_jail.h"],
-    copts = [
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-Wno-unused",
-        "-Wno-unused-parameter",
-    ],
-    deps = ["@nsjail//:nsjail_lib"],
+genrule(
+    name = "config_descriptor",
+    srcs = ["@nsjail//:config.proto"],
+    outs = ["config_descriptor.pb"],
+    cmd = "$(location @protobuf//:protoc)" +
+          " --descriptor_set_out=$@" +
+          " --include_imports" +
+          " -I $$(dirname $(location @nsjail//:config.proto))" +
+          " $(location @nsjail//:config.proto)",
+    tools = ["@protobuf//:protoc"],
 )
 
 # ---------------------------------------------------------------------------
@@ -89,13 +86,22 @@ cc_library(
 rust_binary(
     name = "sandbox",
     srcs = ["main.rs"],
-    compile_data = [":jail_config_pb"],
-    rustc_env = {"JAIL_CONFIG_PB": "$(execpath :jail_config_pb)"},
+    compile_data = [
+        ":jail_config_pb",
+        ":config_descriptor",
+        "@nsjail//:nsjail",
+    ],
+    rustc_env = {
+        "JAIL_CONFIG_PB": "$(execpath :jail_config_pb)",
+        "CONFIG_DESCRIPTOR": "$(execpath :config_descriptor)",
+        "NSJAIL_BIN": "$(execpath @nsjail//:nsjail)",
+    },
     deps = [
         ":nsjail_proto",
-        ":run_jail",
         "@crates//:clap",
+        "@crates//:libc",
         "@crates//:prost",
+        "@crates//:prost-reflect",
     ],
 )
 
