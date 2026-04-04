@@ -16,6 +16,8 @@ syntax = "proto3";
 
 package exec_service;
 
+option go_package = "github.com/google/agent-shell-tools/exec_service/execservicepb";
+
 // A simple command execution service.
 service ExecService {
   // Executes a command and streams the output until completion.

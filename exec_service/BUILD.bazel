@@ -12,7 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_go//proto:def.bzl", "go_proto_library")
+
 proto_library(
     name = "exec_service_proto",
     srcs = ["exec_service.proto"],
+)
+
+go_proto_library(
+    name = "exec_service_go_proto",
+    compilers = ["@rules_go//proto:go_grpc"],
+    importpath = "github.com/google/agent-shell-tools/exec_service/execservicepb",
+    proto = ":exec_service_proto",
+    visibility = ["//visibility:public"],
 )
