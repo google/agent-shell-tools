@@ -1,0 +1,43 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@rules_go//go:def.bzl", "go_test")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files", "strip_prefix")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+pkg_files(
+    name = "binaries",
+    srcs = [
+        "//exec_service/cmd/exec_client:exec_client",
+        "//exec_service/cmd/exec_server:exec_server",
+        "//sandbox:sandbox",
+    ],
+    attributes = pkg_attributes(mode = "0755"),
+    strip_prefix = strip_prefix.files_only(),
+)
+
+pkg_tar(
+    name = "dist",
+    srcs = [":binaries"],
+)
+
+go_test(
+    name = "dist_test",
+    srcs = ["dist_test.go"],
+    data = [":dist"],
+    env = {"DIST_TAR": "$(rlocationpath :dist)"},
+    env_inherit = ["HOME"],
+    tags = ["local"],
+    deps = ["@rules_go//go/runfiles"],
+)

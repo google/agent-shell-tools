@@ -86,6 +86,7 @@ genrule(
 rust_binary(
     name = "sandbox",
     srcs = ["main.rs"],
+    visibility = ["//visibility:public"],
     compile_data = [
         ":jail_config_pb",
         ":config_descriptor",
