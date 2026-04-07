@@ -1,0 +1,44 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "exec_client_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/google/agent-shell-tools/exec_service/cmd/exec_client",
+    deps = [
+        "//exec_service:exec_service_go_proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
+    ],
+)
+
+go_binary(
+    name = "exec_client",
+    embed = [":exec_client_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "exec_client_test",
+    srcs = ["exec_client_test.go"],
+    embed = [":exec_client_lib"],
+    tags = ["local"],
+    deps = [
+        "//exec_service:exec_service_go_proto",
+        "//exec_service/server",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
