@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "exec_server_lib",
@@ -29,4 +29,18 @@ go_binary(
     name = "exec_server",
     embed = [":exec_server_lib"],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "exec_server_test",
+    srcs = ["exec_server_test.go"],
+    data = [":exec_server"],
+    env = {"EXEC_SERVER_BIN": "$(rlocationpath :exec_server)"},
+    tags = ["local"],
+    deps = [
+        "//exec_service:exec_service_go_proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@rules_go//go/runfiles",
+    ],
 )
