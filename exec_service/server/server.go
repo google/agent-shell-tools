@@ -61,13 +61,17 @@ func (s *ExecServer) RunCommand(req *pb.StartCommandRequest, stream pb.ExecServi
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 
-	// Wait for the command concurrently. When it exits, expire the pipe
-	// read deadline so the read loop drains buffered output without
-	// blocking on background children that inherited the pipe fds.
+	// Wait for the command concurrently. When it exits, kill the
+	// process group so that background children close their inherited
+	// pipe fds, allowing the read loop to reach EOF cleanly. The
+	// deadline is a fallback for children that escaped the group
+	// (e.g. via setsid); it is not reached in the normal case
+	// because SIGKILL closes the pipe before the deadline fires.
 	waitCh := make(chan error, 1)
 	go func() {
 		err := cmd.Wait()
-		pr.SetReadDeadline(time.Now())
+		killGroup()
+		pr.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		waitCh <- err
 	}()
 
