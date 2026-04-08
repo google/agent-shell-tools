@@ -7,9 +7,11 @@ build --linkopt=-Wl,-z,noexecstack
 
 test --test_output=errors
 
-# Silence deprecation warnings in upstream protobuf
+# Silence warnings in upstream C/C++ dependencies
 build --per_file_copt=external/protobuf\\+/.*@-Wno-deprecated-declarations
 build --host_per_file_copt=external/protobuf\\+/.*@-Wno-deprecated-declarations
+build --host_per_file_copt=external/rules_m4\\+\\+.*@-Wno-ignored-attributes
+build --host_per_file_copt=external/rules_flex\\+\\+.*@-Wno-pointer-sign,-Wno-misleading-indentation
 
 # Use prebuilt protoc instead of compiling from source
 common --incompatible_enable_proto_toolchain_resolution
