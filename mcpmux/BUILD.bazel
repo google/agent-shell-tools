@@ -16,13 +16,28 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "mcpmux",
-    srcs = ["namespace.go"],
+    srcs = [
+        "child.go",
+        "namespace.go",
+    ],
     importpath = "github.com/google/agent-shell-tools/mcpmux",
     visibility = ["//visibility:public"],
+    deps = ["@com_github_modelcontextprotocol_go_sdk//mcp"],
 )
 
 go_test(
     name = "mcpmux_test",
-    srcs = ["namespace_test.go"],
+    srcs = [
+        "child_test.go",
+        "namespace_test.go",
+    ],
+    data = [
+        "//mcpmux/test/crashserver",
+        "//mcpmux/test/echoserver",
+    ],
     embed = [":mcpmux"],
+    deps = [
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@rules_go//go/runfiles",
+    ],
 )
