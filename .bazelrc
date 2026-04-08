@@ -6,3 +6,7 @@ build --copt=-D_FILE_OFFSET_BITS=64
 build --linkopt=-Wl,-z,noexecstack
 
 test --test_output=errors
+
+# Use prebuilt protoc instead of compiling from source
+common --incompatible_enable_proto_toolchain_resolution
+common --@protobuf//bazel/toolchains:prefer_prebuilt_protoc
