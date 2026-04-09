@@ -29,11 +29,17 @@ MCP server. It does not yet multiplex the full MCP feature surface.
 └──────────────┘         └──────────────────────────────┘
 ```
 
-## Usage
+## Install
 
 ```bash
-bazel build //mcpmux/cmd/mcpmux
-bazel-bin/mcpmux/cmd/mcpmux/mcpmux_/mcpmux
+go install github.com/google/agent-shell-tools/mcpmux@latest
+```
+
+Or build with Bazel:
+
+```bash
+bazel build //mcpmux
+bazel-bin/mcpmux/mcpmux_/mcpmux
 ```
 
 The proxy starts with no child servers. Use the management tools to add them:
@@ -130,10 +136,10 @@ Additional current limitations:
 bazel test //mcpmux/...
 
 # Unit tests only
-bazel test //mcpmux:mcpmux_test
+bazel test //mcpmux/internal/mcpmux:mcpmux_test
 
 # Integration tests (spawns real processes)
-bazel test //mcpmux/integration:integration_test
+bazel test //mcpmux/internal/integration:integration_test
 
 # With race detector
 bazel test //mcpmux/... --@rules_go//go/config:race

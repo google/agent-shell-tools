@@ -12,17 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_test")
 
-go_library(
-    name = "echoserver_v2_lib",
-    srcs = ["main.go"],
-    importpath = "github.com/google/agent-shell-tools/mcpmux/test/echoserver_v2",
-    deps = ["@com_github_modelcontextprotocol_go_sdk//mcp"],
-)
-
-go_binary(
-    name = "echoserver_v2",
-    embed = [":echoserver_v2_lib"],
-    visibility = ["//mcpmux:__subpackages__"],
+go_test(
+    name = "integration_test",
+    srcs = ["proxy_test.go"],
+    data = [
+        "//mcpmux",
+        "//mcpmux/internal/testbin/crashserver",
+        "//mcpmux/internal/testbin/echoserver",
+        "//mcpmux/internal/testbin/echoserver_v2",
+    ],
+    tags = ["local"],
+    deps = [
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@rules_go//go/runfiles",
+    ],
 )

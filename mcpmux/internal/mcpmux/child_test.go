@@ -28,7 +28,7 @@ import (
 
 func echoServerPath(t *testing.T) string {
 	t.Helper()
-	p, err := runfiles.Rlocation("_main/mcpmux/test/echoserver/echoserver_/echoserver")
+	p, err := runfiles.Rlocation("_main/mcpmux/internal/testbin/echoserver/echoserver_/echoserver")
 	if err != nil {
 		t.Fatalf("finding echoserver runfile: %v", err)
 	}
@@ -37,7 +37,7 @@ func echoServerPath(t *testing.T) string {
 
 func crashServerPath(t *testing.T) string {
 	t.Helper()
-	p, err := runfiles.Rlocation("_main/mcpmux/test/crashserver/crashserver_/crashserver")
+	p, err := runfiles.Rlocation("_main/mcpmux/internal/testbin/crashserver/crashserver_/crashserver")
 	if err != nil {
 		t.Fatalf("finding crashserver runfile: %v", err)
 	}

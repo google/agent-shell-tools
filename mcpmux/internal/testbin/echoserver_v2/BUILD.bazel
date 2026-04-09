@@ -15,14 +15,14 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
 go_library(
-    name = "echoserver_lib",
+    name = "echoserver_v2_lib",
     srcs = ["main.go"],
-    importpath = "github.com/google/agent-shell-tools/mcpmux/test/echoserver",
+    importpath = "github.com/google/agent-shell-tools/mcpmux/internal/testbin/echoserver_v2",
     deps = ["@com_github_modelcontextprotocol_go_sdk//mcp"],
 )
 
 go_binary(
-    name = "echoserver",
-    embed = [":echoserver_lib"],
+    name = "echoserver_v2",
+    embed = [":echoserver_v2_lib"],
     visibility = ["//mcpmux:__subpackages__"],
 )
