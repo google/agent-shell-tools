@@ -37,19 +37,19 @@ func binPath(t *testing.T, name string) string {
 }
 
 func proxyPath(t *testing.T) string {
-	return binPath(t, "_main/mcpmux/cmd/mcpmux/mcpmux_/mcpmux")
+	return binPath(t, "_main/mcpmux/mcpmux_/mcpmux")
 }
 
 func echoServerPath(t *testing.T) string {
-	return binPath(t, "_main/mcpmux/test/echoserver/echoserver_/echoserver")
+	return binPath(t, "_main/mcpmux/internal/testbin/echoserver/echoserver_/echoserver")
 }
 
 func echoServerV2Path(t *testing.T) string {
-	return binPath(t, "_main/mcpmux/test/echoserver_v2/echoserver_v2_/echoserver_v2")
+	return binPath(t, "_main/mcpmux/internal/testbin/echoserver_v2/echoserver_v2_/echoserver_v2")
 }
 
 func crashServerPath(t *testing.T) string {
-	return binPath(t, "_main/mcpmux/test/crashserver/crashserver_/crashserver")
+	return binPath(t, "_main/mcpmux/internal/testbin/crashserver/crashserver_/crashserver")
 }
 
 // startProxy starts the mcpmux binary as a subprocess and connects an MCP client.

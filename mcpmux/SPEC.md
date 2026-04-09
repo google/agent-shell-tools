@@ -240,16 +240,16 @@ No input. Returns:
 
 Build minimal test MCP servers as Go binaries:
 
-#### `//mcpmux/test/echoserver`
+#### `//mcpmux/internal/testbin/echoserver`
 - Implements MCP over stdio
 - Exposes one tool: `echo` (returns input as-is)
 - Exposes one tool: `slow_echo` (sleeps for a configurable duration, then returns input)
 
-#### `//mcpmux/test/echoserver_v2`
+#### `//mcpmux/internal/testbin/echoserver_v2`
 - Same as above but adds a `reverse` tool (reverses input string)
 - Used for reload testing
 
-#### `//mcpmux/test/crashserver`
+#### `//mcpmux/internal/testbin/crashserver`
 - Implements MCP, exposes a `crash` tool that calls `os.Exit(1)`
 - Used for crash detection testing
 
@@ -260,7 +260,7 @@ Build minimal test MCP servers as Go binaries:
 bazel test //mcpmux/...
 
 # Integration tests (spawns real processes)
-bazel test //mcpmux/integration/...
+bazel test //mcpmux/internal/integration/...
 
 # With race detector
 bazel test //mcpmux/... --@io_bazel_rules_go//go/config:race

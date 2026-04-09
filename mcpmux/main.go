@@ -23,7 +23,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/google/agent-shell-tools/mcpmux"
+	"github.com/google/agent-shell-tools/mcpmux/internal/mcpmux"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
