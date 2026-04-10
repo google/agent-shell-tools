@@ -16,12 +16,26 @@ syntax = "proto3";
 
 package exec_service;
 
+import "google/protobuf/duration.proto";
+
 option go_package = "github.com/google/agent-shell-tools/exec_service/execservicepb";
 
 // A simple command execution service.
 service ExecService {
-  // Executes a command and streams the output until completion.
-  rpc RunCommand(StartCommandRequest) returns (stream ServerEvent);
+  // Executes a command and streams output until completion. The first
+  // ClientEvent must be a StartCommandRequest; subsequent events may
+  // include TerminateCommand.
+  rpc RunCommand(stream ClientEvent) returns (stream ServerEvent);
+}
+
+message ClientEvent {
+  oneof event {
+    // Must be the first message on the stream.
+    StartCommandRequest start = 1;
+
+    // Request termination of the running command.
+    TerminateCommand terminate = 2;
+  }
 }
 
 message StartCommandRequest {
@@ -32,6 +46,18 @@ message StartCommandRequest {
   string working_dir = 2;
 }
 
+message TerminateCommand {
+  // When false, send SIGTERM only (grace_period is ignored).
+  // When true, guarantee the process dies via SIGKILL. If grace_period
+  // is set, send SIGTERM first and SIGKILL after the grace period;
+  // otherwise send SIGKILL immediately.
+  bool force = 1;
+
+  // Only used when force is true. If non-zero, SIGTERM is sent first
+  // and SIGKILL follows after this duration.
+  google.protobuf.Duration grace_period = 2;
+}
+
 message ServerEvent {
   oneof event {
     // Incremental stdout/stderr from the command.
@@ -39,7 +65,15 @@ message ServerEvent {
 
     // Sent exactly once when the command finishes.
     ExitInfo exited = 2;
+
+    // Sent once after the command starts, before any output.
+    CommandStarted started = 3;
   }
+}
+
+message CommandStarted {
+  // Opaque identifier for this command invocation.
+  string command_id = 1;
 }
 
 message ExitInfo {

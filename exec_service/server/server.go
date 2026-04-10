@@ -16,14 +16,18 @@
 package server
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
 	"time"
 
 	pb "github.com/google/agent-shell-tools/exec_service/execservicepb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ExecServer implements the ExecService gRPC service.
@@ -33,9 +37,22 @@ type ExecServer struct {
 }
 
 // RunCommand executes a shell command and streams output events until the
-// command exits. The command_line is interpreted by sh -c. Stdout and stderr
-// are merged into the output stream.
-func (s *ExecServer) RunCommand(req *pb.StartCommandRequest, stream pb.ExecService_RunCommandServer) error {
+// command exits. The first ClientEvent must be a StartCommandRequest.
+// Subsequent TerminateCommand events signal the running process.
+func (s *ExecServer) RunCommand(stream pb.ExecService_RunCommandServer) error {
+	// The first message must be a start request.
+	first, err := stream.Recv()
+	if err != nil {
+		if err == io.EOF {
+			return status.Error(codes.InvalidArgument, "empty stream: first message must be StartCommandRequest")
+		}
+		return err
+	}
+	req := first.GetStart()
+	if req == nil {
+		return status.Error(codes.InvalidArgument, "first message must be StartCommandRequest")
+	}
+
 	cmd := exec.Command("sh", "-c", req.GetCommandLine())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -57,32 +74,93 @@ func (s *ExecServer) RunCommand(req *pb.StartCommandRequest, stream pb.ExecServi
 	}
 	pw.Close()
 
-	killGroup := func() {
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	pid := cmd.Process.Pid
+	killPG := func() { syscall.Kill(-pid, syscall.SIGKILL) }
+	termPG := func() { syscall.Kill(-pid, syscall.SIGTERM) }
+
+	// Send CommandStarted with a random ID.
+	cmdID := randomID()
+	if err := stream.Send(&pb.ServerEvent{
+		Event: &pb.ServerEvent_Started{
+			Started: &pb.CommandStarted{CommandId: cmdID},
+		},
+	}); err != nil {
+		killPG()
+		cmd.Wait()
+		return err
 	}
 
 	// Wait for the command concurrently. When it exits, kill the
 	// process group so that background children close their inherited
-	// pipe fds, allowing the read loop to reach EOF cleanly. The
-	// deadline is a fallback for children that escaped the group
-	// (e.g. via setsid); it is not reached in the normal case
-	// because SIGKILL closes the pipe before the deadline fires.
+	// pipe fds, allowing the read loop to reach EOF cleanly. This is
+	// pipe cleanup, not termination policy — it runs regardless of how
+	// the process exited. The deadline is a fallback for children that
+	// escaped the group (e.g. via setsid).
 	waitCh := make(chan error, 1)
+	procDone := make(chan struct{})
 	go func() {
 		err := cmd.Wait()
-		killGroup()
+		close(procDone)
+		killPG()
 		pr.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		waitCh <- err
 	}()
 
+	// Listen for client events (terminate) and context cancellation (disconnect).
+	protoErr := make(chan error, 1)
+	go func() {
+		for {
+			ev, err := stream.Recv()
+			if err != nil {
+				// io.EOF means the client closed its send side — normal,
+				// the command keeps running. Any other error means the
+				// stream is broken.
+				if err != io.EOF {
+					select {
+					case <-procDone:
+					default:
+						killPG()
+					}
+				}
+				return
+			}
+			switch ev.Event.(type) {
+			case *pb.ClientEvent_Terminate:
+				t := ev.GetTerminate()
+				select {
+				case <-procDone:
+					continue
+				default:
+				}
+				if !t.GetForce() {
+					termPG()
+				} else if gp := t.GetGracePeriod(); gp != nil && gp.AsDuration() > 0 {
+					termPG()
+					go func() {
+						select {
+						case <-time.After(gp.AsDuration()):
+							killPG()
+						case <-procDone:
+						}
+					}()
+				} else {
+					killPG()
+				}
+			default:
+				// Protocol violation: only terminate is valid after start.
+				killPG()
+				protoErr <- status.Error(codes.InvalidArgument, "only TerminateCommand is valid after StartCommandRequest")
+				return
+			}
+		}
+	}()
+
 	// Kill the process group if the client disconnects.
-	done := make(chan struct{})
-	defer close(done)
 	go func() {
 		select {
 		case <-stream.Context().Done():
-			killGroup()
-		case <-done:
+			killPG()
+		case <-procDone:
 		}
 	}()
 
@@ -93,7 +171,7 @@ func (s *ExecServer) RunCommand(req *pb.StartCommandRequest, stream pb.ExecServi
 			if sendErr := stream.Send(&pb.ServerEvent{
 				Event: &pb.ServerEvent_Output{Output: append([]byte(nil), buf[:n]...)},
 			}); sendErr != nil {
-				killGroup()
+				killPG()
 				<-waitCh
 				return sendErr
 			}
@@ -115,6 +193,14 @@ func (s *ExecServer) RunCommand(req *pb.StartCommandRequest, stream pb.ExecServi
 		}
 	}
 
+	// If the recv goroutine detected a protocol violation, return it
+	// instead of the normal exit event.
+	select {
+	case err := <-protoErr:
+		return err
+	default:
+	}
+
 	return stream.Send(&pb.ServerEvent{
 		Event: &pb.ServerEvent_Exited{
 			Exited: &pb.ExitInfo{
@@ -134,4 +220,10 @@ func sendError(stream pb.ExecService_RunCommandServer, msg string) error {
 			},
 		},
 	})
+}
+
+func randomID() string {
+	b := make([]byte, 16)
+	io.ReadFull(rand.Reader, b)
+	return fmt.Sprintf("%x", b)
 }
