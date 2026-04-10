@@ -4,6 +4,12 @@ A small language for defining allowed command invocations. Each rule file
 describes the permitted argument shapes for a command, with path arguments
 carrying read/write permission annotations.
 
+This language describes which command lines are permitted. It does not by
+itself provide process isolation. In this repository, most agent actions
+should run under `//sandbox`; command filtering is used to narrowly delegate
+specific CLI capabilities, including commands that intentionally use ambient
+user credentials.
+
 ## Statements
 
 Every line is one of two statement types, identified by a keyword prefix:
