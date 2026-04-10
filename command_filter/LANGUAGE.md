@@ -33,8 +33,8 @@ act as alternatives — a command is permitted if it matches any one of them.
 ### `define`
 
 Binds a name to a sub-pattern that can be referenced elsewhere. The name must
-be wrapped in angle brackets and must not collide with built-in types
-(`string`, `path`).
+be wrapped in angle brackets and must not collide with the built-in type names
+`string` or `path`.
 
 Definitions may reference other definitions. The reference graph must be
 acyclic (no recursion).
@@ -55,31 +55,41 @@ allow rg --help
 
 Angle-bracketed names that match a single argument:
 
-| Placeholder    | Matches                              |
-|----------------|--------------------------------------|
-| `<string>`     | Any argument                         |
-| `<string:->`   | Any argument (dash-allowed modifier) |
-| `<path:r>`     | A path the user can read             |
-| `<path:w>`     | A path the user can write            |
-| `<name>`       | Expands a `define`d sub-pattern      |
+| Placeholder    | Matches                                          |
+|----------------|--------------------------------------------------|
+| `<string>`     | Any argument that does not start with `-`        |
+| `<string:->`   | Any argument, including those starting with `-`  |
+| `<path:r>`     | A path the user can read                         |
+| `<path:w>`     | A path the user can write                        |
+| `<name>`       | Expands a `define`d sub-pattern                  |
+
+Modifiers (the `:` suffix, e.g. `:-`, `:r`, `:w`) are only valid on built-in
+types. User-defined names must be plain `<name>` with no modifier.
 
 User-defined names are distinguished from built-in types by their presence in
 a `define` statement.
 
 ### Groups and alternatives
 
-Parentheses group elements. Pipe separates alternatives within a group:
+Parentheses `()` and square brackets `[]` both group elements. Pipe `|`
+separates alternatives within the closest enclosing group:
 
 ```
 (-g | -F)
 (-name <string:-> | -type <string:->)
+[-l | -t | -h]
 ```
 
-A group matches exactly one of its alternatives.
+A group matches exactly one of its alternatives. Each alternative may be a
+sequence of multiple elements, where each element consumes one argument:
+
+```
+(-name <string:-> | -type <string:->)   # each branch is two arguments
+```
 
 ### Optional
 
-Square brackets mark an element or group as optional (zero or one):
+Square brackets mark a group as optional (zero or one):
 
 ```
 [<string>]
@@ -103,6 +113,29 @@ repetition of `...`:
 ```
 [<options>]...    # zero or more options
 [-r | -f]...     # zero or more of these flags
+```
+
+## Ambiguity
+
+Patterns must be **1-unambiguous**: at every point where matching could follow
+two paths (continue a repetition vs. advance to the next element, or choose
+between alternatives), the sets of arguments each path accepts must be
+disjoint. The matcher decides where each argument belongs by inspecting that
+argument alone, with no lookahead or backtracking.
+
+A pattern that violates this property is rejected at parse time:
+
+```
+<path:r>... <path:w>          # error: both sides accept paths
+[<string>]... <string>        # error: same type on both sides
+[<string:->]... <string>      # error: <string:-> is a superset of <string>
+```
+
+Valid patterns keep choice points disjoint:
+
+```
+[-v | -r]... <string>         # ok: literals are disjoint from <string>
+[<options>]... <string>       # ok: options expand to dash-prefixed flags
 ```
 
 ## Future extensions
