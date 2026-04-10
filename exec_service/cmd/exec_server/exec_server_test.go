@@ -108,6 +108,8 @@ func collect(t *testing.T, stream pb.ExecService_RunCommandClient) (output strin
 			t.Fatalf("Recv: %v", err)
 		}
 		switch e := ev.Event.(type) {
+		case *pb.ServerEvent_Started:
+			// Ignore.
 		case *pb.ServerEvent_Output:
 			output += string(e.Output)
 		case *pb.ServerEvent_Exited:
@@ -119,12 +121,19 @@ func collect(t *testing.T, stream pb.ExecService_RunCommandClient) (output strin
 
 func TestRunCommand(t *testing.T) {
 	client := startServer(t)
-	stream, err := client.RunCommand(context.Background(), &pb.StartCommandRequest{
-		CommandLine: "echo hello",
-	})
+	stream, err := client.RunCommand(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := stream.Send(&pb.ClientEvent{
+		Event: &pb.ClientEvent_Start{
+			Start: &pb.StartCommandRequest{CommandLine: "echo hello"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stream.CloseSend()
+
 	output, exitCode, _ := collect(t, stream)
 	if exitCode != 0 {
 		t.Errorf("exit code = %d, want 0", exitCode)

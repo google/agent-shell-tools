@@ -79,14 +79,24 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer conn.Close()
 
 	client := pb.NewExecServiceClient(conn)
-	stream, err := client.RunCommand(context.Background(), &pb.StartCommandRequest{
-		CommandLine: cmdLine,
-		WorkingDir:  *dir,
-	})
+	stream, err := client.RunCommand(context.Background())
 	if err != nil {
 		fmt.Fprintf(stderr, "RunCommand: %v\n", err)
 		return 1
 	}
+
+	if err := stream.Send(&pb.ClientEvent{
+		Event: &pb.ClientEvent_Start{
+			Start: &pb.StartCommandRequest{
+				CommandLine: cmdLine,
+				WorkingDir:  *dir,
+			},
+		},
+	}); err != nil {
+		fmt.Fprintf(stderr, "send start: %v\n", err)
+		return 1
+	}
+	stream.CloseSend()
 
 	for {
 		ev, err := stream.Recv()
@@ -98,6 +108,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		switch e := ev.Event.(type) {
+		case *pb.ServerEvent_Started:
+			// Ignore for CLI usage.
 		case *pb.ServerEvent_Output:
 			stdout.Write(e.Output)
 		case *pb.ServerEvent_Exited:

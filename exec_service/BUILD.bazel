@@ -17,6 +17,7 @@ load("@rules_go//proto:def.bzl", "go_proto_library")
 proto_library(
     name = "exec_service_proto",
     srcs = ["exec_service.proto"],
+    deps = ["@protobuf//:duration_proto"],
 )
 
 go_proto_library(
