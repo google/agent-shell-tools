@@ -2,40 +2,36 @@
 
 Tools to let coding agents access the shell with opinionated defaults.
 
-## Security model
+## Components
 
-Most agent actions should run under [`//sandbox`](sandbox/BUILD.bazel).
-Command filtering complements sandboxing by narrowly delegating selected CLI
-capabilities, including commands that intentionally use the user's ambient
-credentials. It is not a substitute for sandboxing.
+- **[`sandbox`](sandbox/)** — nsjail-based execution sandbox. The container
+  boundary is the primary security model: the agent runs with full freedom
+  inside the sandbox but cannot access host credentials or mutate the host
+  filesystem.
+- **[`command_filter`](command_filter/)** — rule language and filter for
+  host-side command execution. Complements sandboxing by narrowly delegating
+  specific CLI capabilities the agent may use with the user's ambient
+  credentials.
+- **[`exec_service`](exec_service/)** — gRPC service for streaming command
+  execution over Unix sockets.
+- **[`mcpmux`](mcpmux/)** — MCP proxy for developing and testing MCP servers.
+  The agent can edit a server, start it through `mcpmux`, and exercise it
+  through the same MCP session — a full edit-test cycle.
 
-Command filtering is useful for narrowing which command lines an agent may run:
-which binaries are allowed, which subcommands and flags are allowed, and which
-logical paths may be passed as arguments. That is a least-authority delegation
-mechanism, not a full security boundary.
+File access is out of scope. Agents use their native file tools for that.
 
-If an allowed command can use the user's ambient credentials, network access,
-or other external authority, then allowing that command is effectively
-granting that capability to the agent. Path restrictions such as `<path:r>`
-and `<path:w>` only constrain named file arguments; they do not constrain
-unrelated side effects a command may have.
+## Compositions
 
-For example, a user might grant an agent permission to fetch GitHub Actions
-logs via a narrow `gh` rule. That is different from allowing arbitrary `gh`
-usage: the rule is a deliberate delegation of one credential-backed
-capability, not blanket authority over the GitHub CLI.
+The sandbox boundary can be drawn at different points.
 
-Some allowed tools may execute hooks, helpers, pagers, editors, or other
-user-controlled programs as part of their normal behavior.
-Rules should be written with those secondary execution paths in mind.
+**Agent inside the sandbox.** The agent process runs inside `sandbox` and
+executes commands freely; the container wall is the only boundary.
+`command_filter` governs any host-side commands the agent is granted.
 
-Practical guidance:
-
-- Prefer running agent actions in `//sandbox`.
-- Use command filters to grant narrow, reviewable capabilities, especially for
-  tools that intentionally act with the user's ambient credentials.
-- Write rules per operation, not per binary.
-- Treat each allow-rule as a permission grant that should be reviewed.
+**Agent outside the sandbox.** The agent runs on the host and sends commands
+to `exec_service` inside the sandbox over a Unix socket. `command_filter`
+is not needed for sandboxed execution but may still govern other host-side
+commands.
 
 ## License
 
