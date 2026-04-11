@@ -21,6 +21,7 @@ pkg_files(
     srcs = [
         "//exec_service/cmd/exec_client:exec_client",
         "//exec_service/cmd/exec_server:exec_server",
+        "//mcpmux:mcpmux",
         "//sandbox:sandbox",
     ],
     attributes = pkg_attributes(mode = "0755"),
