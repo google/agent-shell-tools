@@ -33,6 +33,34 @@ to `exec_service` inside the sandbox over a Unix socket. `command_filter`
 is not needed for sandboxed execution but may still govern other host-side
 commands.
 
+## Development
+
+Builds and tests are hermetic via Bazel. The main development loop is:
+
+```sh
+bazel test //...
+```
+
+This builds everything and runs all tests. Bazel's caching makes repeated
+runs fast — only targets affected by your edits are rebuilt.
+
+### Coverage
+
+```sh
+bazel coverage //... --combined_report=lcov
+```
+
+The combined LCOV report is printed at the end of the output. To render it
+as HTML:
+
+```sh
+genhtml --output coverage-html "$(bazel info output_path)/_coverage/_coverage_report.dat"
+```
+
+### Distribution tarball
+
+`bazel build //dist` packages the binaries into a single tarball.
+
 ## License
 
 Apache-2.0
