@@ -78,6 +78,19 @@ crate.spec(
     package = "googletest",
     version = "0.14",
 )
+crate.spec(
+    features = ["derive"],
+    package = "serde",
+    version = "1",
+)
+crate.spec(
+    package = "sha2",
+    version = "0.10",
+)
+crate.spec(
+    package = "toml",
+    version = "0.8",
+)
 crate.from_specs(name = "crates")
 use_repo(crate, "crates")
 
