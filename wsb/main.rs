@@ -13,8 +13,10 @@
 // limitations under the License.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Child, Command, ExitCode};
+use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -23,6 +25,8 @@ use sha2::{Digest, Sha256};
 const SOCKET_NAME: &str = "grpc_exec.sock";
 const PID_NAME: &str = "launcher.pid";
 const RUNTIME_DIR_NAME: &str = ".agent-shell-tools";
+const SOCKET_TIMEOUT: Duration = Duration::from_secs(10);
+const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Workspace sandbox launcher.
 ///
@@ -45,6 +49,14 @@ enum Commands {
 struct StartArgs {
     /// Path to the workspace directory.
     workspace: PathBuf,
+
+    /// Path to the sandbox binary (default: auto-discover).
+    #[arg(long)]
+    sandbox_bin: Option<PathBuf>,
+
+    /// Path to the grpc_execd binary (default: auto-discover).
+    #[arg(long)]
+    grpc_execd_bin: Option<PathBuf>,
 }
 
 /// Metadata written to the state directory for workspace ID recovery.
@@ -82,6 +94,13 @@ fn resolve_path(p: &Path) -> PathBuf {
         return PathBuf::from(dir).join(p);
     }
     p.to_path_buf()
+}
+
+/// Resolve a binary path.  Uses the same BUILD_WORKING_DIRECTORY
+/// handling as `resolve_path` so relative paths from `--sandbox-bin`
+/// etc. work under `bazel run`.
+fn resolve_binary_path(p: &Path) -> PathBuf {
+    resolve_path(p)
 }
 
 /// XDG data home, defaulting to $HOME/.local/share.
@@ -171,6 +190,88 @@ fn check_stale(runtime_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Walk a Bazel runfiles tree looking for a file named `name`.
+fn find_in_runfiles(runfiles_dir: &Path, name: &str) -> Option<PathBuf> {
+    fn walk(dir: &Path, name: &str) -> Option<PathBuf> {
+        let entries = fs::read_dir(dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && entry.file_name() == name {
+                return Some(path);
+            }
+            if path.is_dir() {
+                if let Some(found) = walk(&path, name) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+    walk(runfiles_dir, name)
+}
+
+/// Find a binary by name.  Search order:
+/// 1. Sibling of the current executable (dist tarball layout)
+/// 2. Bazel runfiles tree (<exe>.runfiles/, recursive search for name)
+/// 3. $PATH
+fn find_binary(name: &str) -> Result<PathBuf, String> {
+    if let Ok(self_path) = std::env::current_exe() {
+        // Check sibling (dist tarball layout: all binaries in one dir).
+        if let Some(dir) = self_path.parent() {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+        // Check Bazel runfiles tree: <exe>.runfiles/_main/**/name.
+        let runfiles_dir = PathBuf::from(format!("{}.runfiles", self_path.display()));
+        if runfiles_dir.is_dir() {
+            if let Some(found) = find_in_runfiles(&runfiles_dir, name) {
+                return Ok(found);
+            }
+        }
+    }
+    // Fall back to $PATH.
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+    Err(format!("'{name}' not found alongside wsb or in PATH"))
+}
+
+/// Poll for the socket file to appear, checking that the child hasn't
+/// exited prematurely.
+fn wait_for_socket(socket_path: &Path, child: &mut Child) -> Result<(), String> {
+    let deadline = Instant::now() + SOCKET_TIMEOUT;
+    loop {
+        if socket_path.exists() {
+            return Ok(());
+        }
+        if Instant::now() > deadline {
+            child.kill().ok();
+            child.wait().ok();
+            return Err(format!(
+                "grpc_execd socket did not appear within {}s",
+                SOCKET_TIMEOUT.as_secs(),
+            ));
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            return Err(format!("sandbox exited early with {status}"));
+        }
+        std::thread::sleep(SOCKET_POLL_INTERVAL);
+    }
+}
+
+/// Remove runtime artifacts (socket and PID file).
+fn cleanup(layout: &Layout) {
+    let _ = fs::remove_file(&layout.socket_path);
+    let _ = fs::remove_file(&layout.pid_path);
+}
+
 impl StartArgs {
     fn run(&self) -> ExitCode {
         let workspace = match resolve_path(&self.workspace).canonicalize() {
@@ -198,10 +299,108 @@ impl StartArgs {
             return ExitCode::from(1);
         }
 
-        eprintln!("workspace: {}", layout.workspace.display());
-        eprintln!("state:     {}", layout.data_dir.display());
-        eprintln!("socket:    {}", layout.socket_path.display());
-        ExitCode::SUCCESS
+        // Atomically claim the workspace via exclusive file creation.
+        // If two launchers race, only one will succeed at create_new().
+        match fs::File::create_new(&layout.pid_path) {
+            Ok(mut f) => {
+                let _ = write!(f, "{}", std::process::id());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                eprintln!("error: PID file already exists (concurrent launch?)");
+                return ExitCode::from(1);
+            }
+            Err(e) => {
+                eprintln!("error: creating PID file: {e}");
+                return ExitCode::from(1);
+            }
+        }
+
+        let sandbox_bin = match &self.sandbox_bin {
+            Some(p) => resolve_binary_path(p),
+            None => match find_binary("sandbox") {
+                Ok(p) => p,
+                Err(e) => { eprintln!("error: {e}"); cleanup(&layout); return ExitCode::from(1); }
+            },
+        };
+        // Canonicalize grpc_execd to resolve symlinks (e.g. PATH-installed
+        // or Bazel runfiles symlinks).  Without this, the mount would expose
+        // the symlink's directory but not the target.
+        let grpc_execd_bin = match &self.grpc_execd_bin {
+            Some(p) => match resolve_binary_path(p).canonicalize() {
+                Ok(c) => c,
+                Err(e) => { eprintln!("error: resolving grpc_execd path: {e}"); cleanup(&layout); return ExitCode::from(1); }
+            },
+            None => match find_binary("grpc_execd") {
+                Ok(p) => match p.canonicalize() {
+                    Ok(c) => c,
+                    Err(e) => { eprintln!("error: resolving grpc_execd path: {e}"); cleanup(&layout); return ExitCode::from(1); }
+                },
+                Err(e) => { eprintln!("error: {e}"); cleanup(&layout); return ExitCode::from(1); }
+            },
+        };
+
+        // The grpc_execd binary must be visible inside the sandbox.
+        // Mount its parent directory read-only.
+        let grpc_execd_dir = grpc_execd_bin.parent()
+            .expect("grpc_execd binary has no parent directory");
+
+        let mut cmd = Command::new(&sandbox_bin);
+        cmd.arg("--home").arg(&layout.home_dir)
+            .arg("--rw").arg(&layout.workspace)
+            .arg("--log-file").arg(&layout.log_path);
+        // Only add --ro if grpc_execd isn't already under the workspace.
+        if !grpc_execd_bin.starts_with(&layout.workspace) {
+            cmd.arg("--ro").arg(grpc_execd_dir);
+        }
+        let mut child = match cmd
+            .arg("--")
+            .arg(&grpc_execd_bin)
+            .arg("-addr").arg(&layout.socket_path)
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("error: spawning sandbox: {e}");
+                cleanup(&layout);
+                return ExitCode::from(1);
+            }
+        };
+
+        // Update PID file with the sandbox child PID for stale detection.
+        // The launcher PID was written before spawn as a lock; now replace
+        // it with the child PID so stale detection tracks the sandbox.
+        if let Err(e) = fs::write(&layout.pid_path, child.id().to_string()) {
+            eprintln!("error: updating PID file: {e}");
+            child.kill().ok();
+            child.wait().ok();
+            cleanup(&layout);
+            return ExitCode::from(1);
+        }
+
+        if let Err(e) = wait_for_socket(&layout.socket_path, &mut child) {
+            eprintln!("error: {e}");
+            cleanup(&layout);
+            return ExitCode::from(1);
+        }
+
+        // Ready — print socket path on stdout for callers to consume.
+        // Explicit flush ensures the line is delivered when stdout is piped.
+        let _ = writeln!(std::io::stdout(), "ready: {}", layout.socket_path.display());
+        let _ = std::io::stdout().flush();
+
+        // Block until the child exits.  In a terminal, Ctrl-C sends SIGINT
+        // to the entire foreground process group, which includes the child.
+        // Proper signal forwarding is added in a follow-up CL.
+        let code = match child.wait() {
+            Ok(status) => status.code().unwrap_or(1) as u8,
+            Err(e) => {
+                eprintln!("error: waiting for sandbox: {e}");
+                1
+            }
+        };
+
+        cleanup(&layout);
+        ExitCode::from(code)
     }
 }
 
