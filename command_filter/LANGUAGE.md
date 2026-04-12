@@ -71,6 +71,37 @@ types. User-defined names must be plain `<name>` with no modifier.
 User-defined names are distinguished from built-in types by their presence in
 a `define` statement.
 
+### Prefixed placeholders
+
+A literal prefix immediately followed by a placeholder (no separating space)
+forms a single element that matches one argument:
+
+```
+--color=<string>      # matches --color=auto, --color=never, …
+--output=<path:w>     # matches --output=/tmp/out (path must be writable)
+/LOG:<path:w>         # matches /LOG:build.log (any literal prefix works)
+```
+
+The argument must start with the literal prefix, and the remainder (everything
+after the prefix) is validated by the placeholder.
+
+The placeholder's normal matching rules apply to the remainder. For example,
+`--flag=<string>` rejects `--flag=-x` because `<string>` does not accept
+arguments starting with `-`, while `--flag=<string:->` accepts it.
+
+User-defined names are also valid after a prefix, provided every path through
+the definition consumes exactly one argument:
+
+```
+define <level> (debug | info | warn | error)
+
+allow logger --level=<level>       # ok: <level> is single-argument
+```
+
+A definition whose expansion contains multi-element sequences, repetition, or
+optional groups is not single-argument and is rejected in prefix position at
+parse time.
+
 ### Groups and alternatives
 
 Parentheses `()` and square brackets `[]` both group elements. Pipe `|`
