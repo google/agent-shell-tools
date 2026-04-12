@@ -14,6 +14,7 @@
 
 use std::fs;
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode};
 use std::time::{Duration, Instant};
@@ -266,6 +267,26 @@ fn wait_for_socket(socket_path: &Path, child: &mut Child) -> Result<(), String> 
     }
 }
 
+/// Wait for the child to exit.  SIGTERM is ignored (via sigaction in
+/// main) so the launcher survives process-group signals and can clean up.
+///
+/// In a terminal, Ctrl-C sends SIGINT to the entire foreground process
+/// group, which includes the sandbox child — the child exits, and
+/// child.wait() returns.  For SIGTERM, the same process-group delivery
+/// applies.  If SIGTERM is sent only to the wsb PID, it may or may not
+/// be reliably caught in a multi-threaded Rust process; in that case
+/// the child continues running.  The expected usage is process-group
+/// signals (Ctrl-C, supervisord, systemd KillMode=process-group).
+fn wait_for_child(child: &mut Child) -> u8 {
+    match child.wait() {
+        Ok(status) => status.code().unwrap_or(1) as u8,
+        Err(e) => {
+            eprintln!("error: waiting for sandbox: {e}");
+            1
+        }
+    }
+}
+
 /// Remove runtime artifacts (socket and PID file).
 fn cleanup(layout: &Layout) {
     let _ = fs::remove_file(&layout.socket_path);
@@ -352,6 +373,16 @@ impl StartArgs {
         if !grpc_execd_bin.starts_with(&layout.workspace) {
             cmd.arg("--ro").arg(grpc_execd_dir);
         }
+        // Restore default signal handlers in the child before exec.
+        // SIG_IGN is inherited across fork+exec, so without this the
+        // child would also ignore SIGTERM.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::signal(libc::SIGTERM, libc::SIG_DFL);
+                libc::signal(libc::SIGINT, libc::SIG_DFL);
+                Ok(())
+            });
+        }
         let mut child = match cmd
             .arg("--")
             .arg(&grpc_execd_bin)
@@ -388,16 +419,7 @@ impl StartArgs {
         let _ = writeln!(std::io::stdout(), "ready: {}", layout.socket_path.display());
         let _ = std::io::stdout().flush();
 
-        // Block until the child exits.  In a terminal, Ctrl-C sends SIGINT
-        // to the entire foreground process group, which includes the child.
-        // Proper signal forwarding is added in a follow-up CL.
-        let code = match child.wait() {
-            Ok(status) => status.code().unwrap_or(1) as u8,
-            Err(e) => {
-                eprintln!("error: waiting for sandbox: {e}");
-                1
-            }
-        };
+        let code = wait_for_child(&mut child);
 
         cleanup(&layout);
         ExitCode::from(code)
@@ -405,6 +427,23 @@ impl StartArgs {
 }
 
 fn main() -> ExitCode {
+    // Ignore SIGINT and SIGTERM so the launcher survives until the child
+    // exits and cleanup can run.  We use sigaction with SA_RESTART to
+    // avoid interrupting waitpid.  SIG_IGN is inherited across fork but
+    // reset by exec, so the child (sandbox/nsjail) gets default handlers.
+    //
+    // Note: Rust's runtime may install a SIGINT handler after this call,
+    // but that's OK — the child receives SIGINT from the process group
+    // and exits, which causes our child.wait() to return.  For SIGTERM,
+    // no Rust runtime handler exists, so SIG_IGN takes effect.
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = libc::SIG_IGN;
+        sa.sa_flags = libc::SA_RESTART;
+        libc::sigemptyset(&mut sa.sa_mask);
+        libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut());
+    }
+
     let cli = Cli::parse();
     match cli.command {
         Commands::Start(args) => args.run(),
