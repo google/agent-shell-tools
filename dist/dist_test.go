@@ -71,8 +71,8 @@ func extractTar(t *testing.T, dir string) {
 	}
 }
 
-// TestSandboxedHostname extracts the dist tarball, runs exec_server inside the
-// sandbox, and uses exec_client to verify that the UTS namespace hostname is
+// TestSandboxedHostname extracts the dist tarball, runs grpc_execd inside the
+// sandbox, and uses grpc_exec to verify that the UTS namespace hostname is
 // "coding-agent".
 func TestSandboxedHostname(t *testing.T) {
 	dir := t.TempDir()
@@ -81,9 +81,9 @@ func TestSandboxedHostname(t *testing.T) {
 	bin := func(name string) string { return filepath.Join(dir, name) }
 	sock := filepath.Join(dir, "exec.sock")
 
-	// Start exec_server inside the sandbox.
+	// Start grpc_execd inside the sandbox.
 	server := exec.Command(bin("sandbox"), "--log-file", "/dev/null", "--rw", dir, "--",
-		bin("exec_server"), "-addr", sock)
+		bin("grpc_execd"), "-addr", sock)
 	server.Stderr = os.Stderr
 	if err := server.Start(); err != nil {
 		t.Fatalf("start sandboxed server: %v", err)
@@ -102,8 +102,8 @@ func TestSandboxedHostname(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	// Use exec_client to read the hostname inside the sandbox.
-	out, err := exec.Command(bin("exec_client"), "-addr", sock, "cat /proc/sys/kernel/hostname").Output()
+	// Use grpc_exec to read the hostname inside the sandbox.
+	out, err := exec.Command(bin("grpc_exec"), "-addr", sock, "cat /proc/sys/kernel/hostname").Output()
 	if err != nil {
 		t.Fatalf("exec_client: %v", err)
 	}

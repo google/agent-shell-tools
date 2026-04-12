@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Binary exec_server runs the ExecService gRPC server.
+// Binary grpc_execd runs the ExecService gRPC server.
 package main
 
 import (
@@ -23,8 +23,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	pb "github.com/google/agent-shell-tools/exec_service/execservicepb"
-	"github.com/google/agent-shell-tools/exec_service/server"
+	pb "github.com/google/agent-shell-tools/grpc_exec/grpcexecpb"
+	"github.com/google/agent-shell-tools/grpc_exec/server"
 	"google.golang.org/grpc"
 )
 

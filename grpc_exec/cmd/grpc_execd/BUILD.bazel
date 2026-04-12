@@ -12,32 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
-    name = "server",
-    srcs = ["server.go"],
-    importpath = "github.com/google/agent-shell-tools/exec_service/server",
-    visibility = ["//visibility:public"],
+    name = "grpc_execd_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/google/agent-shell-tools/grpc_exec/cmd/grpc_execd",
     deps = [
-        "//exec_service:exec_service_go_proto",
+        "//grpc_exec:grpc_exec_go_proto",
+        "//grpc_exec/server",
         "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//codes",
-        "@org_golang_google_grpc//status",
     ],
 )
 
+go_binary(
+    name = "grpc_execd",
+    embed = [":grpc_execd_lib"],
+    visibility = ["//visibility:public"],
+)
+
 go_test(
-    name = "server_test",
-    srcs = ["server_test.go"],
+    name = "grpc_execd_test",
+    srcs = ["grpc_execd_test.go"],
+    data = [":grpc_execd"],
+    env = {"GRPC_EXECD_BIN": "$(rlocationpath :grpc_execd)"},
+    tags = ["local"],
     deps = [
-        ":server",
-        "//exec_service:exec_service_go_proto",
+        "//grpc_exec:grpc_exec_go_proto",
         "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//credentials/insecure",
-        "@org_golang_google_grpc//status",
-        "@org_golang_google_grpc//test/bufconn",
-        "@org_golang_google_protobuf//types/known/durationpb",
+        "@rules_go//go/runfiles",
     ],
 )

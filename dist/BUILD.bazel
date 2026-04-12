@@ -19,8 +19,8 @@ load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 pkg_files(
     name = "binaries",
     srcs = [
-        "//exec_service/cmd/exec_client:exec_client",
-        "//exec_service/cmd/exec_server:exec_server",
+        "//grpc_exec/cmd/grpc_exec",
+        "//grpc_exec/cmd/grpc_execd",
         "//mcpmux:mcpmux",
         "//sandbox:sandbox",
     ],

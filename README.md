@@ -12,7 +12,7 @@ Tools to let coding agents access the shell with opinionated defaults.
   host-side command execution. Complements sandboxing by narrowly delegating
   specific CLI capabilities the agent may use with the user's ambient
   credentials.
-- **[`exec_service`](exec_service/)** — gRPC service for streaming command
+- **[`grpc_exec`](grpc_exec/)** — gRPC service for streaming command
   execution over Unix sockets.
 - **[`mcpmux`](mcpmux/)** — MCP proxy for developing and testing MCP servers.
   The agent can edit a server, start it through `mcpmux`, and exercise it
@@ -29,7 +29,7 @@ executes commands freely; the container wall is the only boundary.
 `command_filter` governs any host-side commands the agent is granted.
 
 **Agent outside the sandbox.** The agent runs on the host and sends commands
-to `exec_service` inside the sandbox over a Unix socket. `command_filter`
+to `grpc_exec` inside the sandbox over a Unix socket. `command_filter`
 is not needed for sandboxed execution but may still govern other host-side
 commands.
 

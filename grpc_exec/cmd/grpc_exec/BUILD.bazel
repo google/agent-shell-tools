@@ -15,32 +15,30 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
-    name = "exec_server_lib",
+    name = "grpc_exec_lib",
     srcs = ["main.go"],
-    importpath = "github.com/google/agent-shell-tools/exec_service/cmd/exec_server",
+    importpath = "github.com/google/agent-shell-tools/grpc_exec/cmd/grpc_exec",
     deps = [
-        "//exec_service:exec_service_go_proto",
-        "//exec_service/server",
+        "//grpc_exec:grpc_exec_go_proto",
         "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
     ],
 )
 
 go_binary(
-    name = "exec_server",
-    embed = [":exec_server_lib"],
+    name = "grpc_exec",
+    embed = [":grpc_exec_lib"],
     visibility = ["//visibility:public"],
 )
 
 go_test(
-    name = "exec_server_test",
-    srcs = ["exec_server_test.go"],
-    data = [":exec_server"],
-    env = {"EXEC_SERVER_BIN": "$(rlocationpath :exec_server)"},
+    name = "grpc_exec_test",
+    srcs = ["grpc_exec_test.go"],
+    embed = [":grpc_exec_lib"],
     tags = ["local"],
     deps = [
-        "//exec_service:exec_service_go_proto",
+        "//grpc_exec:grpc_exec_go_proto",
+        "//grpc_exec/server",
         "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//credentials/insecure",
-        "@rules_go//go/runfiles",
     ],
 )

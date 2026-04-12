@@ -21,8 +21,8 @@ import (
 	"strings"
 	"testing"
 
-	pb "github.com/google/agent-shell-tools/exec_service/execservicepb"
-	"github.com/google/agent-shell-tools/exec_service/server"
+	pb "github.com/google/agent-shell-tools/grpc_exec/grpcexecpb"
+	"github.com/google/agent-shell-tools/grpc_exec/server"
 	"google.golang.org/grpc"
 )
 

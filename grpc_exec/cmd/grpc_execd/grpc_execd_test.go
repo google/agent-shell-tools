@@ -27,16 +27,16 @@ import (
 	"time"
 
 	"github.com/bazelbuild/rules_go/go/runfiles"
-	pb "github.com/google/agent-shell-tools/exec_service/execservicepb"
+	pb "github.com/google/agent-shell-tools/grpc_exec/grpcexecpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 func binPath(t *testing.T) string {
 	t.Helper()
-	rloc := os.Getenv("EXEC_SERVER_BIN")
+	rloc := os.Getenv("GRPC_EXECD_BIN")
 	if rloc == "" {
-		t.Fatal("EXEC_SERVER_BIN not set")
+		t.Fatal("GRPC_EXECD_BIN not set")
 	}
 	r, err := runfiles.New()
 	if err != nil {
@@ -49,7 +49,7 @@ func binPath(t *testing.T) string {
 	return p
 }
 
-// startServer launches the exec_server binary on a temporary Unix socket and
+// startServer launches the grpc_execd binary on a temporary Unix socket and
 // returns a connected gRPC client. The server process is killed on cleanup.
 func startServer(t *testing.T) pb.ExecServiceClient {
 	t.Helper()

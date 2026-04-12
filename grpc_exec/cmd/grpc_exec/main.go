@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Binary exec_client is a command line client for the ExecService gRPC server.
+// Binary grpc_exec is a command line client for the ExecService gRPC server.
 // It connects to the server over a Unix socket, sends a command, streams
 // output to stdout, and exits with the command's exit code.
 package main
@@ -26,13 +26,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	pb "github.com/google/agent-shell-tools/exec_service/execservicepb"
+	pb "github.com/google/agent-shell-tools/grpc_exec/grpcexecpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 func run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("exec_client", flag.ContinueOnError)
+	fs := flag.NewFlagSet("grpc_exec", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	addr := fs.String("addr", "", "Unix socket path to connect to (required)")
 	dir := fs.String("dir", "", "Working directory for the command")
@@ -53,9 +53,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// When the caller passes a single argument it is treated as a raw shell
-	// command (e.g. exec_client -addr s "echo hello && ls"). Multiple
+	// command (e.g. grpc_exec -addr s "echo hello && ls"). Multiple
 	// arguments are shell-quoted so that spaces and metacharacters in
-	// individual args are preserved (e.g. exec_client -addr s touch "a b").
+	// individual args are preserved (e.g. grpc_exec -addr s touch "a b").
 	var cmdLine string
 	if len(cmdArgs) == 1 {
 		cmdLine = cmdArgs[0]

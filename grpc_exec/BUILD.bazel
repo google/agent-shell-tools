@@ -15,15 +15,15 @@
 load("@rules_go//proto:def.bzl", "go_proto_library")
 
 proto_library(
-    name = "exec_service_proto",
-    srcs = ["exec_service.proto"],
+    name = "grpc_exec_proto",
+    srcs = ["grpc_exec.proto"],
     deps = ["@protobuf//:duration_proto"],
 )
 
 go_proto_library(
-    name = "exec_service_go_proto",
+    name = "grpc_exec_go_proto",
     compilers = ["@rules_go//proto:go_grpc"],
-    importpath = "github.com/google/agent-shell-tools/exec_service/execservicepb",
-    proto = ":exec_service_proto",
+    importpath = "github.com/google/agent-shell-tools/grpc_exec/grpcexecpb",
+    proto = ":grpc_exec_proto",
     visibility = ["//visibility:public"],
 )
