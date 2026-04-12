@@ -17,6 +17,10 @@ load("@rules_rust//rust:defs.bzl", "rust_binary")
 rust_binary(
     name = "wsb",
     srcs = ["main.rs"],
+    data = [
+        "//grpc_exec/cmd/grpc_execd",
+        "//sandbox:sandbox",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         "@crates//:clap",
