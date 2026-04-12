@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 
 rust_binary(
     name = "wsb",
@@ -28,5 +28,26 @@ rust_binary(
         "@crates//:serde",
         "@crates//:sha2",
         "@crates//:toml",
+    ],
+)
+
+rust_test(
+    name = "wsb_test",
+    srcs = ["wsb_test.rs"],
+    data = [
+        ":wsb",
+        "//grpc_exec/cmd/grpc_exec",
+        "//grpc_exec/cmd/grpc_execd",
+        "//sandbox:sandbox",
+    ],
+    env = {
+        "WSB_BIN": "$(rootpath :wsb)",
+        "GRPC_EXEC_BIN": "$(rootpath //grpc_exec/cmd/grpc_exec)",
+    },
+    env_inherit = ["HOME"],
+    tags = ["local"],
+    deps = [
+        "@crates//:googletest",
+        "@crates//:libc",
     ],
 )
