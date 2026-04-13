@@ -511,4 +511,57 @@ mod tests {
         let result = data_home().unwrap();
         assert_eq!(result, PathBuf::from(home).join(".local/share"));
     }
+
+    #[test]
+    fn check_stale_cleans_dead_pid() {
+        let tmp = std::env::temp_dir()
+            .join(format!("wsb-test-stale-dead-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // Write a PID file with a PID that doesn't exist.
+        // PID 2^22-1 is extremely unlikely to be in use.
+        let pid_path = tmp.join(PID_NAME);
+        std::fs::write(&pid_path, "4194303").unwrap();
+        // Also create a stale socket file.
+        let socket_path = tmp.join(SOCKET_NAME);
+        std::fs::write(&socket_path, "").unwrap();
+
+        // check_stale should succeed (dead PID) and remove both files.
+        check_stale(&tmp).unwrap();
+        assert!(!pid_path.exists(), "PID file should be removed");
+        assert!(!socket_path.exists(), "socket file should be removed");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn check_stale_rejects_live_pid() {
+        let tmp = std::env::temp_dir()
+            .join(format!("wsb-test-stale-live-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // Write our own PID — definitely alive.
+        let pid_path = tmp.join(PID_NAME);
+        std::fs::write(&pid_path, std::process::id().to_string()).unwrap();
+
+        let err = check_stale(&tmp).unwrap_err();
+        assert!(
+            format!("{err}").contains("already running"),
+            "expected 'already running' error, got: {err}",
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn check_stale_no_pid_file() {
+        let tmp = std::env::temp_dir()
+            .join(format!("wsb-test-stale-none-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // No PID file — should succeed without error.
+        check_stale(&tmp).unwrap();
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
 }
