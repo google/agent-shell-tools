@@ -404,3 +404,30 @@ fn main() -> ExitCode {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn workspace_id_deterministic() {
+        let id1 = workspace_id(Path::new("/tmp/my-workspace")).unwrap();
+        let id2 = workspace_id(Path::new("/tmp/my-workspace")).unwrap();
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn workspace_id_is_16_hex_chars() {
+        let id = workspace_id(Path::new("/tmp/test")).unwrap();
+        assert_eq!(id.len(), 16);
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn workspace_id_differs_for_different_paths() {
+        let id1 = workspace_id(Path::new("/tmp/workspace-a")).unwrap();
+        let id2 = workspace_id(Path::new("/tmp/workspace-b")).unwrap();
+        assert_ne!(id1, id2);
+    }
+}
