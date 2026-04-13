@@ -1,0 +1,82 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_library(
+    name = "wire",
+    srcs = ["wire.rs"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:postcard",
+        "@crates//:serde",
+    ],
+)
+
+rust_binary(
+    name = "pktexecd",
+    srcs = ["pktexecd.rs"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":wire",
+        "@crates//:anyhow",
+        "@crates//:clap",
+        "@crates//:command-fds",
+        "@crates//:libc",
+        "@crates//:nix",
+        "@crates//:tokio",
+        "@crates//:tokio-seqpacket",
+    ],
+)
+
+rust_binary(
+    name = "pktexec",
+    srcs = ["pktexec.rs"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":wire",
+        "@crates//:anyhow",
+        "@crates//:libc",
+        "@crates//:nix",
+        "@crates//:tokio",
+        "@crates//:tokio-seqpacket",
+    ],
+)
+
+rust_test(
+    name = "wire_test",
+    crate = ":wire",
+    deps = [
+        "@crates//:googletest",
+    ],
+)
+
+rust_test(
+    name = "pktexec_test",
+    srcs = ["pktexec_test.rs"],
+    data = [
+        ":pktexec",
+        ":pktexecd",
+    ],
+    env = {
+        "PKTEXEC_BIN": "$(rootpath :pktexec)",
+        "PKTEXECD_BIN": "$(rootpath :pktexecd)",
+    },
+    tags = ["local"],
+    deps = [
+        "@crates//:googletest",
+        "@crates//:libc",
+    ],
+)
