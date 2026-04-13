@@ -171,3 +171,48 @@ fn start_rejects_nonexistent_workspace() {
 
     std::fs::remove_dir_all(&parent).ok();
 }
+
+#[googletest::test]
+fn start_rejects_file_as_workspace() {
+    let dir = temp_workspace("file-ws");
+    let file_path = dir.join("not-a-dir");
+    std::fs::write(&file_path, "I am a file").unwrap();
+
+    let output = Command::new(wsb_bin())
+        .arg("start")
+        .arg(&file_path)
+        .output()
+        .expect("failed to spawn wsb");
+
+    expect_that!(output.status.code(), some(eq(1)));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    expect_that!(stderr, contains_substring("not a directory"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[googletest::test]
+fn pid_file_contains_child_pid() {
+    let workspace = temp_workspace("pid-child");
+
+    let (child, _socket_path) = start_wsb(&workspace);
+
+    // The PID file should contain the sandbox child PID, not the
+    // launcher (wsb) PID.
+    let pid_path = workspace.join(".agent-shell-tools").join("launcher.pid");
+    let pid_str = std::fs::read_to_string(&pid_path)
+        .expect("failed to read PID file");
+    let recorded_pid: u32 = pid_str.trim().parse()
+        .expect("PID file does not contain a valid number");
+
+    let wsb_pid = child.id();
+    // The recorded PID should be different from wsb's own PID —
+    // it should be the sandbox child.
+    expect_that!(recorded_pid, not(eq(wsb_pid)));
+    // And it should be a real, live process.
+    let alive = unsafe { libc::kill(recorded_pid as i32, 0) } == 0;
+    expect_that!(alive, eq(true));
+
+    stop_wsb(child);
+    std::fs::remove_dir_all(&workspace).ok();
+}
