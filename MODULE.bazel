@@ -75,6 +75,10 @@ crate.annotation(
     gen_binaries = ["protoc-gen-prost"],
 )
 crate.spec(
+    package = "anyhow",
+    version = "1",
+)
+crate.spec(
     package = "googletest",
     version = "0.14",
 )
