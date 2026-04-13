@@ -92,6 +92,10 @@ crate.spec(
     version = "0.10",
 )
 crate.spec(
+    package = "tempfile",
+    version = "3",
+)
+crate.spec(
     package = "toml",
     version = "0.8",
 )

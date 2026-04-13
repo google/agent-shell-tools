@@ -115,7 +115,9 @@ rust_test(
     srcs = ["sandbox_test.rs"],
     data = [":sandbox"],
     env = {"AGENT_SANDBOX_BIN": "$(rootpath :sandbox)"},
-    env_inherit = ["HOME"],
     tags = ["local"],
-    deps = ["@crates//:googletest"],
+    deps = [
+        "@crates//:googletest",
+        "@crates//:tempfile",
+    ],
 )

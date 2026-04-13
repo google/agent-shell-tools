@@ -34,10 +34,9 @@ rust_binary(
 
 rust_test(
     name = "wsb_unit_test",
-    # Single-threaded: tests mutate process-global env vars (XDG_DATA_HOME).
+    # Single-threaded: tests mutate process-global env vars (XDG_DATA_HOME, HOME).
     args = ["--test-threads=1"],
     crate = ":wsb",
-    env_inherit = ["HOME"],
 )
 
 rust_test(
@@ -53,10 +52,10 @@ rust_test(
         "WSB_BIN": "$(rootpath :wsb)",
         "GRPC_EXEC_BIN": "$(rootpath //grpc_exec/cmd/grpc_exec)",
     },
-    env_inherit = ["HOME"],
     tags = ["local"],
     deps = [
         "@crates//:googletest",
         "@crates//:libc",
+        "@crates//:tempfile",
     ],
 )

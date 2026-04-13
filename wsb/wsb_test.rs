@@ -43,11 +43,14 @@ fn temp_workspace(test_name: &str) -> PathBuf {
     dir
 }
 
-/// Start wsb for a workspace directory. Returns the child process and
-/// the socket path parsed from the "ready: <path>" line on stdout.
-fn start_wsb(workspace: &std::path::Path) -> (std::process::Child, String) {
+/// Start wsb for a workspace directory. Returns the child process,
+/// the socket path parsed from the "ready: <path>" line on stdout,
+/// and a TempDir used as HOME (must be held alive for the process lifetime).
+fn start_wsb(workspace: &std::path::Path) -> (std::process::Child, String, tempfile::TempDir) {
+    let home = tempfile::tempdir().expect("creating test HOME");
     let mut cmd = Command::new(wsb_bin());
-    cmd.arg("start")
+    cmd.env("HOME", home.path())
+        .arg("start")
         .arg(workspace)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -75,7 +78,7 @@ fn start_wsb(workspace: &std::path::Path) -> (std::process::Child, String) {
             }
             Ok(_) => {
                 if let Some(path) = line.trim().strip_prefix("ready: ") {
-                    return (child, path.to_string());
+                    return (child, path.to_string(), home);
                 }
             }
             Err(e) => {
@@ -121,7 +124,7 @@ fn exec_command(socket: &str, cmd: &str) -> String {
 fn start_creates_directories() {
     let workspace = temp_workspace("dirs");
 
-    let (child, socket_path) = start_wsb(&workspace);
+    let (child, socket_path, _home) = start_wsb(&workspace);
 
     // Runtime dir should exist with socket.
     let runtime_dir = workspace.join(".agent-shell-tools");
@@ -140,7 +143,7 @@ fn start_creates_directories() {
 fn start_end_to_end() {
     let workspace = temp_workspace("e2e");
 
-    let (child, socket_path) = start_wsb(&workspace);
+    let (child, socket_path, _home) = start_wsb(&workspace);
 
     // Run a command inside the sandbox.
     let output = exec_command(&socket_path, "echo hello");
@@ -195,7 +198,7 @@ fn start_rejects_file_as_workspace() {
 fn pid_file_contains_child_pid() {
     let workspace = temp_workspace("pid-child");
 
-    let (child, _socket_path) = start_wsb(&workspace);
+    let (child, _socket_path, _home) = start_wsb(&workspace);
 
     // The PID file should contain the sandbox child PID, not the
     // launcher (wsb) PID.
@@ -221,7 +224,7 @@ fn pid_file_contains_child_pid() {
 fn cleanup_after_signal() {
     let workspace = temp_workspace("cleanup-sig");
 
-    let (mut child, _socket_path) = start_wsb(&workspace);
+    let (mut child, _socket_path, _home) = start_wsb(&workspace);
 
     let runtime_dir = workspace.join(".agent-shell-tools");
     let pid_path = runtime_dir.join("launcher.pid");

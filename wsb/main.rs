@@ -506,10 +506,10 @@ mod tests {
     fn data_home_falls_back_to_home() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { remove_env("XDG_DATA_HOME") };
-        // HOME should be set in test environment.
-        let home = std::env::var("HOME").unwrap();
+        unsafe { set_env("HOME", "/fake/home") };
         let result = data_home().unwrap();
-        assert_eq!(result, PathBuf::from(home).join(".local/share"));
+        assert_eq!(result, PathBuf::from("/fake/home/.local/share"));
+        unsafe { remove_env("HOME") };
     }
 
     #[test]
