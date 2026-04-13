@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 
 use googletest::prelude::*;
@@ -42,7 +42,13 @@ fn sandbox(args: &[&str]) -> SandboxOutput {
 }
 
 fn sandbox_with_flags(flags: &[&str], cmd: &[&str]) -> SandboxOutput {
+    let home = tempfile::tempdir().expect("creating test HOME");
+    sandbox_with_home(home.path(), flags, cmd)
+}
+
+fn sandbox_with_home(home: &Path, flags: &[&str], cmd: &[&str]) -> SandboxOutput {
     let Output { status, stdout, stderr } = Command::new(sandbox_bin())
+        .env("HOME", home)
         .args(flags)
         .args(["--"])
         .args(cmd)
@@ -112,18 +118,20 @@ fn uts_namespace() {
 
 #[googletest::test]
 fn home_exists_and_is_writable() {
-    let home = std::env::var("HOME").unwrap();
-    let r = sandbox(&["/bin/sh", "-c",
-        &format!("test -d {home} && touch {home}/.test && rm {home}/.test")]);
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let r = sandbox_with_home(home.path(), &[], &["/bin/sh", "-c",
+        &format!("test -d {home_str} && touch {home_str}/.test && rm {home_str}/.test")]);
     expect_that!(r.status.code(), some(eq(0)));
 }
 
 #[googletest::test]
 fn home_matches_host() {
-    let home = std::env::var("HOME").unwrap();
-    let r = sandbox(&["/bin/sh", "-c", "echo $HOME"]);
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let r = sandbox_with_home(home.path(), &[], &["/bin/sh", "-c", "echo $HOME"]);
     expect_that!(r.status.code(), some(eq(0)));
-    expect_that!(r.stdout, eq(&format!("{home}\n")));
+    expect_that!(r.stdout, eq(&format!("{home_str}\n")));
 }
 
 #[googletest::test]
@@ -224,8 +232,8 @@ fn ro_mount() {
 
 #[googletest::test]
 fn rejects_mount_of_home() {
-    let home = std::env::var("HOME").unwrap();
-    let r = sandbox_with_flags(&["--rw", &home], &["/bin/true"]);
+    let home = tempfile::tempdir().unwrap();
+    let r = sandbox_with_home(home.path(), &["--rw", home.path().to_str().unwrap()], &["/bin/true"]);
     expect_that!(r.status.code(), some(eq(1)));
     expect_that!(r.stderr, contains_substring("would expose $HOME"));
 }
@@ -239,18 +247,16 @@ fn rejects_mount_of_home_parent() {
 
 #[googletest::test]
 fn allows_mount_of_home_child() {
-    let home = std::env::var("HOME").unwrap();
-    // Use a subdir that exists inside the tmpfs home.
-    let r = sandbox_with_flags(
-        &["--rw", "/tmp"],
+    // A child of $HOME does not "expose" $HOME, so it should be allowed.
+    let home = tempfile::tempdir().unwrap();
+    let child = home.path().join("project");
+    std::fs::create_dir_all(&child).unwrap();
+    let r = sandbox_with_home(
+        home.path(),
+        &["--rw", child.to_str().unwrap()],
         &["/bin/true"],
     );
     expect_that!(r.status.code(), some(eq(0)));
-
-    // Sanity: a child of $HOME would be allowed too if it existed.
-    // (We can't easily test this since $HOME is a tmpfs, but the
-    // logic is: /home/r/project does NOT expose /home/r.)
-    let _ = home;
 }
 
 #[googletest::test]

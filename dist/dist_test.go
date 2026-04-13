@@ -75,6 +75,7 @@ func extractTar(t *testing.T, dir string) {
 // sandbox, and uses grpc_exec to verify that the UTS namespace hostname is
 // "coding-agent".
 func TestSandboxedHostname(t *testing.T) {
+	home := t.TempDir()
 	dir := t.TempDir()
 	extractTar(t, dir)
 
@@ -84,6 +85,7 @@ func TestSandboxedHostname(t *testing.T) {
 	// Start grpc_execd inside the sandbox.
 	server := exec.Command(bin("sandbox"), "--log-file", "/dev/null", "--rw", dir, "--",
 		bin("grpc_execd"), "-addr", sock)
+	server.Env = append(os.Environ(), "HOME="+home)
 	server.Stderr = os.Stderr
 	if err := server.Start(); err != nil {
 		t.Fatalf("start sandboxed server: %v", err)

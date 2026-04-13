@@ -39,7 +39,6 @@ go_test(
     srcs = ["dist_test.go"],
     data = [":dist"],
     env = {"DIST_TAR": "$(rlocationpath :dist)"},
-    env_inherit = ["HOME"],
     tags = ["local"],
     deps = ["@rules_go//go/runfiles"],
 )
