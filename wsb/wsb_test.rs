@@ -216,3 +216,32 @@ fn pid_file_contains_child_pid() {
     stop_wsb(child);
     std::fs::remove_dir_all(&workspace).ok();
 }
+
+#[googletest::test]
+fn cleanup_after_signal() {
+    let workspace = temp_workspace("cleanup-sig");
+
+    let (mut child, _socket_path) = start_wsb(&workspace);
+
+    let runtime_dir = workspace.join(".agent-shell-tools");
+    let pid_path = runtime_dir.join("launcher.pid");
+    let socket_path = runtime_dir.join("grpc_exec.sock");
+
+    // Verify files exist before signal.
+    expect_that!(pid_path.exists(), eq(true));
+    expect_that!(socket_path.exists(), eq(true));
+
+    // Send SIGTERM to the process group. Since start_wsb creates a new
+    // pgrp via setpgid, this reaches both wsb and the sandbox child.
+    let pgid = child.id() as i32;
+    unsafe { libc::kill(-pgid, libc::SIGTERM); }
+
+    // Wait for wsb to exit (it should clean up before exiting).
+    child.wait().expect("wait failed");
+
+    // Verify cleanup happened: socket and PID file should be gone.
+    expect_that!(pid_path.exists(), eq(false));
+    expect_that!(socket_path.exists(), eq(false));
+
+    std::fs::remove_dir_all(&workspace).ok();
+}
