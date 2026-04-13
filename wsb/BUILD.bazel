@@ -33,6 +33,11 @@ rust_binary(
 )
 
 rust_test(
+    name = "wsb_unit_test",
+    crate = ":wsb",
+)
+
+rust_test(
     name = "wsb_test",
     srcs = ["wsb_test.rs"],
     data = [
