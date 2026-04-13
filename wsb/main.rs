@@ -267,16 +267,10 @@ fn wait_for_socket(socket_path: &Path, child: &mut Child) -> Result<(), String> 
     }
 }
 
-/// Wait for the child to exit.  SIGTERM is ignored (via sigaction in
-/// main) so the launcher survives process-group signals and can clean up.
-///
-/// In a terminal, Ctrl-C sends SIGINT to the entire foreground process
-/// group, which includes the sandbox child — the child exits, and
-/// child.wait() returns.  For SIGTERM, the same process-group delivery
-/// applies.  If SIGTERM is sent only to the wsb PID, it may or may not
-/// be reliably caught in a multi-threaded Rust process; in that case
-/// the child continues running.  The expected usage is process-group
-/// signals (Ctrl-C, supervisord, systemd KillMode=process-group).
+/// Wait for the child to exit.  SIGINT and SIGTERM are ignored (via
+/// sigaction in main) so the launcher survives signals and can clean up.
+/// The child (sandbox/nsjail) gets default signal handlers via pre_exec
+/// and handles shutdown independently.
 fn wait_for_child(child: &mut Child) -> u8 {
     match child.wait() {
         Ok(status) => status.code().unwrap_or(1) as u8,
@@ -428,23 +422,19 @@ impl StartArgs {
 
 fn main() -> ExitCode {
     // Ignore SIGINT and SIGTERM so the launcher survives until the child
-    // exits and cleanup can run.  We use sigaction with SA_RESTART to
-    // avoid interrupting waitpid.  SIG_IGN is inherited across fork but
-    // reset by exec, so the child (sandbox/nsjail) gets default handlers.
-    //
-    // Note: Rust's runtime may install a SIGINT handler after this call,
-    // but that's OK — the child receives SIGINT from the process group
-    // and exits, which causes our child.wait() to return.  For SIGTERM,
-    // no Rust runtime handler exists, so SIG_IGN takes effect.
+    // exits and cleanup can run.  SIG_IGN is inherited across fork but
+    // reset by exec, so the sandbox child gets default signal handlers.
     unsafe {
         let mut sa: libc::sigaction = std::mem::zeroed();
         sa.sa_sigaction = libc::SIG_IGN;
         sa.sa_flags = libc::SA_RESTART;
         libc::sigemptyset(&mut sa.sa_mask);
         libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut());
+        libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut());
     }
 
     let cli = Cli::parse();
+
     match cli.command {
         Commands::Start(args) => args.run(),
     }
