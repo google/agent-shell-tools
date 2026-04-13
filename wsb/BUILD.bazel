@@ -34,7 +34,10 @@ rust_binary(
 
 rust_test(
     name = "wsb_unit_test",
+    # Single-threaded: tests mutate process-global env vars (XDG_DATA_HOME).
+    args = ["--test-threads=1"],
     crate = ":wsb",
+    env_inherit = ["HOME"],
 )
 
 rust_test(

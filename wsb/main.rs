@@ -68,6 +68,7 @@ struct WorkspaceMeta {
 }
 
 /// Resolved paths for a workspace session.
+#[derive(Debug)]
 struct Layout {
     /// Canonical absolute path to the workspace.
     workspace: PathBuf,
@@ -429,5 +430,85 @@ mod tests {
         let id1 = workspace_id(Path::new("/tmp/workspace-a")).unwrap();
         let id2 = workspace_id(Path::new("/tmp/workspace-b")).unwrap();
         assert_ne!(id1, id2);
+    }
+
+    /// Serialize tests that mutate environment variables.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    // SAFETY: tests are serialized by ENV_LOCK and run single-threaded
+    // within the lock, so concurrent env access is prevented.
+    unsafe fn set_env(key: &str, val: impl AsRef<std::ffi::OsStr>) {
+        std::env::set_var(key, val);
+    }
+    unsafe fn remove_env(key: &str) {
+        std::env::remove_var(key);
+    }
+
+    #[test]
+    fn setup_layout_rejects_long_socket_path() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("wsb-test-long-path-{}", std::process::id()));
+        // Build a workspace path long enough that the socket exceeds 107 bytes.
+        // socket = <workspace>/.agent-shell-tools/grpc_exec.sock (40 extra chars)
+        let long_name = "a".repeat(100);
+        let workspace = tmp.join(&long_name);
+        std::fs::create_dir_all(&workspace).unwrap();
+        unsafe { set_env("XDG_DATA_HOME", tmp.join("data")) };
+
+        let err = setup_layout(&workspace).unwrap_err();
+        assert!(
+            format!("{err}").contains("exceeds Unix limit of 107"),
+            "expected socket length error, got: {err}",
+        );
+
+        unsafe { remove_env("XDG_DATA_HOME") };
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn setup_layout_creates_workspace_toml() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("wsb-test-meta-{}", std::process::id()));
+        let workspace = tmp.join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let data_dir = tmp.join("data");
+        unsafe { set_env("XDG_DATA_HOME", &data_dir) };
+
+        let layout = setup_layout(&workspace).unwrap();
+
+        // workspace.toml should exist in the data dir.
+        let meta_path = layout.data_dir.join("workspace.toml");
+        assert!(meta_path.exists(), "workspace.toml not created");
+        let contents = std::fs::read_to_string(&meta_path).unwrap();
+        let meta: WorkspaceMeta = toml::from_str(&contents).unwrap();
+        assert_eq!(meta.path, workspace.to_string_lossy());
+
+        // home dir should exist.
+        assert!(layout.home_dir.is_dir(), "home dir not created");
+
+        // data_dir should be under our XDG_DATA_HOME.
+        assert!(layout.data_dir.starts_with(&data_dir));
+
+        unsafe { remove_env("XDG_DATA_HOME") };
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn data_home_respects_xdg() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { set_env("XDG_DATA_HOME", "/custom/data") };
+        let result = data_home().unwrap();
+        assert_eq!(result, PathBuf::from("/custom/data"));
+        unsafe { remove_env("XDG_DATA_HOME") };
+    }
+
+    #[test]
+    fn data_home_falls_back_to_home() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { remove_env("XDG_DATA_HOME") };
+        // HOME should be set in test environment.
+        let home = std::env::var("HOME").unwrap();
+        let result = data_home().unwrap();
+        assert_eq!(result, PathBuf::from(home).join(".local/share"));
     }
 }
