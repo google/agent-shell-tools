@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode};
 use std::time::{Duration, Instant};
 
+use anyhow::{bail, ensure, Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -105,20 +106,20 @@ fn resolve_binary_path(p: &Path) -> PathBuf {
 }
 
 /// XDG data home, defaulting to $HOME/.local/share.
-fn data_home() -> Result<PathBuf, String> {
+fn data_home() -> Result<PathBuf> {
     if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
         return Ok(PathBuf::from(xdg));
     }
     let home = std::env::var("HOME")
-        .map_err(|_| "neither XDG_DATA_HOME nor HOME is set".to_string())?;
+        .context("neither XDG_DATA_HOME nor HOME is set")?;
     Ok(PathBuf::from(home).join(".local/share"))
 }
 
 /// First 16 hex chars of SHA-256 of the canonical workspace path.
-fn workspace_id(canonical: &Path) -> Result<String, String> {
-    let path_str = canonical.to_str().ok_or_else(|| {
-        format!("workspace path is not valid UTF-8: {}", canonical.display())
-    })?;
+fn workspace_id(canonical: &Path) -> Result<String> {
+    let path_str = canonical
+        .to_str()
+        .with_context(|| format!("workspace path is not valid UTF-8: {}", canonical.display()))?;
     let mut hasher = Sha256::new();
     hasher.update(path_str.as_bytes());
     let hash = hasher.finalize();
@@ -126,7 +127,7 @@ fn workspace_id(canonical: &Path) -> Result<String, String> {
 }
 
 /// Build the Layout for a workspace and create all necessary directories.
-fn setup_layout(workspace: &Path) -> Result<Layout, String> {
+fn setup_layout(workspace: &Path) -> Result<Layout> {
     let id = workspace_id(workspace)?;
     let data_dir = data_home()?.join("agent-shell-tools").join(&id);
     let home_dir = data_dir.join("home");
@@ -136,18 +137,19 @@ fn setup_layout(workspace: &Path) -> Result<Layout, String> {
     let log_path = data_dir.join("sandbox.log");
 
     // Check socket path length (Unix limit is typically 107 bytes).
-    let socket_str = socket_path.to_str().ok_or("non-UTF-8 socket path")?;
-    if socket_str.len() > 107 {
-        return Err(format!(
-            "socket path is {} bytes, exceeds Unix limit of 107: {socket_str}",
-            socket_str.len(),
-        ));
-    }
+    let socket_str = socket_path
+        .to_str()
+        .context("non-UTF-8 socket path")?;
+    ensure!(
+        socket_str.len() <= 107,
+        "socket path is {} bytes, exceeds Unix limit of 107: {socket_str}",
+        socket_str.len(),
+    );
 
     fs::create_dir_all(&home_dir)
-        .map_err(|e| format!("creating state directory '{}': {e}", home_dir.display()))?;
+        .with_context(|| format!("creating state directory '{}'", home_dir.display()))?;
     fs::create_dir_all(&runtime_dir)
-        .map_err(|e| format!("creating runtime directory '{}': {e}", runtime_dir.display()))?;
+        .with_context(|| format!("creating runtime directory '{}'", runtime_dir.display()))?;
 
     // Write workspace metadata for ID recovery.
     let meta = WorkspaceMeta {
@@ -155,7 +157,7 @@ fn setup_layout(workspace: &Path) -> Result<Layout, String> {
     };
     let meta_path = data_dir.join("workspace.toml");
     fs::write(&meta_path, toml::to_string_pretty(&meta).unwrap())
-        .map_err(|e| format!("writing '{}': {e}", meta_path.display()))?;
+        .with_context(|| format!("writing '{}'", meta_path.display()))?;
 
     Ok(Layout { workspace: workspace.to_path_buf(), data_dir, home_dir, runtime_dir, socket_path, pid_path, log_path })
 }
@@ -166,22 +168,18 @@ fn setup_layout(workspace: &Path) -> Result<Layout, String> {
 /// PID reuse (a different process now owns that PID), but that is an
 /// inherent limitation of PID files.  We treat EPERM as "alive" since
 /// the process exists but is owned by another user.
-fn check_stale(runtime_dir: &Path) -> Result<(), String> {
+fn check_stale(runtime_dir: &Path) -> Result<()> {
     let pid_path = runtime_dir.join(PID_NAME);
     if let Ok(contents) = fs::read_to_string(&pid_path) {
         if let Ok(pid) = contents.trim().parse::<i32>() {
             let ret = unsafe { libc::kill(pid, 0) };
             if ret == 0 {
-                return Err(format!(
-                    "another instance (pid {pid}) is already running for this workspace"
-                ));
+                bail!("another instance (pid {pid}) is already running for this workspace");
             }
             // EPERM means the process exists but we can't signal it.
             let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
             if errno == libc::EPERM {
-                return Err(format!(
-                    "another instance (pid {pid}) is running for this workspace (owned by another user)"
-                ));
+                bail!("another instance (pid {pid}) is running for this workspace (owned by another user)");
             }
         }
         let _ = fs::remove_file(&pid_path);
@@ -215,7 +213,7 @@ fn find_in_runfiles(runfiles_dir: &Path, name: &str) -> Option<PathBuf> {
 /// 1. Sibling of the current executable (dist tarball layout)
 /// 2. Bazel runfiles tree (<exe>.runfiles/, recursive search for name)
 /// 3. $PATH
-fn find_binary(name: &str) -> Result<PathBuf, String> {
+fn find_binary(name: &str) -> Result<PathBuf> {
     if let Ok(self_path) = std::env::current_exe() {
         // Check sibling (dist tarball layout: all binaries in one dir).
         if let Some(dir) = self_path.parent() {
@@ -241,12 +239,12 @@ fn find_binary(name: &str) -> Result<PathBuf, String> {
             }
         }
     }
-    Err(format!("'{name}' not found alongside wsb or in PATH"))
+    bail!("'{name}' not found alongside wsb or in PATH")
 }
 
 /// Poll for the socket file to appear, checking that the child hasn't
 /// exited prematurely.
-fn wait_for_socket(socket_path: &Path, child: &mut Child) -> Result<(), String> {
+fn wait_for_socket(socket_path: &Path, child: &mut Child) -> Result<()> {
     let deadline = Instant::now() + SOCKET_TIMEOUT;
     loop {
         if socket_path.exists() {
@@ -255,13 +253,13 @@ fn wait_for_socket(socket_path: &Path, child: &mut Child) -> Result<(), String> 
         if Instant::now() > deadline {
             child.kill().ok();
             child.wait().ok();
-            return Err(format!(
+            bail!(
                 "grpc_execd socket did not appear within {}s",
                 SOCKET_TIMEOUT.as_secs(),
-            ));
+            );
         }
         if let Ok(Some(status)) = child.try_wait() {
-            return Err(format!("sandbox exited early with {status}"));
+            bail!("sandbox exited early with {status}");
         }
         std::thread::sleep(SOCKET_POLL_INTERVAL);
     }
@@ -288,76 +286,50 @@ fn cleanup(layout: &Layout) {
 }
 
 impl StartArgs {
-    fn run(&self) -> ExitCode {
-        let workspace = match resolve_path(&self.workspace).canonicalize() {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("error: resolving '{}': {e}", self.workspace.display());
-                return ExitCode::from(1);
-            }
-        };
-        if !workspace.is_dir() {
-            eprintln!("error: '{}' is not a directory", workspace.display());
-            return ExitCode::from(1);
-        }
+    fn run(&self) -> Result<u8> {
+        let workspace = resolve_path(&self.workspace)
+            .canonicalize()
+            .with_context(|| format!("resolving '{}'", self.workspace.display()))?;
+        ensure!(workspace.is_dir(), "'{}' is not a directory", workspace.display());
 
-        let layout = match setup_layout(&workspace) {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!("error: {e}");
-                return ExitCode::from(1);
-            }
-        };
-
-        if let Err(e) = check_stale(&layout.runtime_dir) {
-            eprintln!("error: {e}");
-            return ExitCode::from(1);
-        }
+        let layout = setup_layout(&workspace)?;
+        check_stale(&layout.runtime_dir)?;
 
         // Atomically claim the workspace via exclusive file creation.
         // If two launchers race, only one will succeed at create_new().
-        match fs::File::create_new(&layout.pid_path) {
-            Ok(mut f) => {
-                let _ = write!(f, "{}", std::process::id());
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                eprintln!("error: PID file already exists (concurrent launch?)");
-                return ExitCode::from(1);
-            }
-            Err(e) => {
-                eprintln!("error: creating PID file: {e}");
-                return ExitCode::from(1);
-            }
-        }
+        let mut pid_file = fs::File::create_new(&layout.pid_path)
+            .context("claiming workspace (PID file already exists — concurrent launch?)")?;
+        let _ = write!(pid_file, "{}", std::process::id());
+        drop(pid_file);
 
+        // Helper: after claiming the PID file, any error must clean up.
+        // We use a closure so ? propagates errors while still cleaning up.
+        let result = self.start_sandbox(&layout);
+        if result.is_err() {
+            cleanup(&layout);
+        }
+        result
+    }
+
+    /// Inner startup logic after the PID file has been claimed.
+    /// Caller is responsible for cleanup on error.
+    fn start_sandbox(&self, layout: &Layout) -> Result<u8> {
         let sandbox_bin = match &self.sandbox_bin {
             Some(p) => resolve_binary_path(p),
-            None => match find_binary("sandbox") {
-                Ok(p) => p,
-                Err(e) => { eprintln!("error: {e}"); cleanup(&layout); return ExitCode::from(1); }
-            },
+            None => find_binary("sandbox")?,
         };
-        // Canonicalize grpc_execd to resolve symlinks (e.g. PATH-installed
-        // or Bazel runfiles symlinks).  Without this, the mount would expose
-        // the symlink's directory but not the target.
         let grpc_execd_bin = match &self.grpc_execd_bin {
-            Some(p) => match resolve_binary_path(p).canonicalize() {
-                Ok(c) => c,
-                Err(e) => { eprintln!("error: resolving grpc_execd path: {e}"); cleanup(&layout); return ExitCode::from(1); }
-            },
-            None => match find_binary("grpc_execd") {
-                Ok(p) => match p.canonicalize() {
-                    Ok(c) => c,
-                    Err(e) => { eprintln!("error: resolving grpc_execd path: {e}"); cleanup(&layout); return ExitCode::from(1); }
-                },
-                Err(e) => { eprintln!("error: {e}"); cleanup(&layout); return ExitCode::from(1); }
-            },
+            Some(p) => resolve_binary_path(p).canonicalize()
+                .context("resolving grpc_execd path")?,
+            None => find_binary("grpc_execd")?
+                .canonicalize()
+                .context("resolving grpc_execd path")?,
         };
 
         // The grpc_execd binary must be visible inside the sandbox.
         // Mount its parent directory read-only.
         let grpc_execd_dir = grpc_execd_bin.parent()
-            .expect("grpc_execd binary has no parent directory");
+            .context("grpc_execd binary has no parent directory")?;
 
         let mut cmd = Command::new(&sandbox_bin);
         cmd.arg("--home").arg(&layout.home_dir)
@@ -377,36 +349,23 @@ impl StartArgs {
                 Ok(())
             });
         }
-        let mut child = match cmd
+        let mut child = cmd
             .arg("--")
             .arg(&grpc_execd_bin)
             .arg("-addr").arg(&layout.socket_path)
             .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("error: spawning sandbox: {e}");
-                cleanup(&layout);
-                return ExitCode::from(1);
-            }
-        };
+            .context("spawning sandbox")?;
 
         // Update PID file with the sandbox child PID for stale detection.
         // The launcher PID was written before spawn as a lock; now replace
         // it with the child PID so stale detection tracks the sandbox.
         if let Err(e) = fs::write(&layout.pid_path, child.id().to_string()) {
-            eprintln!("error: updating PID file: {e}");
             child.kill().ok();
             child.wait().ok();
-            cleanup(&layout);
-            return ExitCode::from(1);
+            return Err(e).context("updating PID file");
         }
 
-        if let Err(e) = wait_for_socket(&layout.socket_path, &mut child) {
-            eprintln!("error: {e}");
-            cleanup(&layout);
-            return ExitCode::from(1);
-        }
+        wait_for_socket(&layout.socket_path, &mut child)?;
 
         // Ready — print socket path on stdout for callers to consume.
         // Explicit flush ensures the line is delivered when stdout is piped.
@@ -416,7 +375,7 @@ impl StartArgs {
         let code = wait_for_child(&mut child);
 
         cleanup(&layout);
-        ExitCode::from(code)
+        Ok(code)
     }
 }
 
@@ -436,6 +395,12 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start(args) => args.run(),
+        Commands::Start(args) => match args.run() {
+            Ok(code) => ExitCode::from(code),
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::from(1)
+            }
+        },
     }
 }
