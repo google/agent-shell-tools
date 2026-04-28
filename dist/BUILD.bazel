@@ -24,6 +24,8 @@ pkg_files(
         "//mcpmux:mcpmux",
         "//sandbox:sandbox",
         "//wsb",
+        "@org_chromium_go_build_siso//:siso",
+        "@org_chromium_go_luci//cipd/client/cmd/cipd",
     ],
     attributes = pkg_attributes(mode = "0755"),
     strip_prefix = strip_prefix.files_only(),
