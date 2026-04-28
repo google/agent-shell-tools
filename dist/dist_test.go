@@ -71,6 +71,40 @@ func extractTar(t *testing.T, dir string) {
 	}
 }
 
+// helpSmokeTest runs `<bin> help <args...>` from the extracted dist tarball
+// and asserts the output mentions `proxy`. Catches packaging regressions
+// (missing binary, wrong arch, dynamic-link breakage) without exercising
+// RE-API or CIPD network paths.
+func helpSmokeTest(t *testing.T, bin string, args ...string) {
+	t.Helper()
+	dir := t.TempDir()
+	extractTar(t, dir)
+
+	cmd := exec.Command(filepath.Join(dir, bin), append([]string{"help"}, args...)...)
+	// Give the binaries an isolated HOME so startup-time environment probes
+	// (notably cipd's auth-cache path lookup) don't depend on the test runner's
+	// environment or emit noisy stderr.
+	cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s help: %v\noutput:\n%s", bin, err, out)
+	}
+	if !strings.Contains(string(out), "proxy") {
+		t.Errorf("%s help output does not mention `proxy` subcommand:\n%s", bin, out)
+	}
+}
+
+// TestSisoHelp smoke-checks the shipped `siso` binary.
+func TestSisoHelp(t *testing.T) {
+	helpSmokeTest(t, "siso")
+}
+
+// TestCipdHelp smoke-checks the shipped `cipd` binary. The `proxy` subcommand
+// is registered as advanced, so use `cipd help -advanced` to see it.
+func TestCipdHelp(t *testing.T) {
+	helpSmokeTest(t, "cipd", "-advanced")
+}
+
 // TestSandboxedHostname extracts the dist tarball, runs grpc_execd inside the
 // sandbox, and uses grpc_exec to verify that the UTS namespace hostname is
 // "coding-agent".
